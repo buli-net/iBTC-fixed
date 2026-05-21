@@ -31,6 +31,7 @@ import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
     private lateinit var wm: WalletManager
     private var qrCallback: ((String) -> Unit)? = null
@@ -235,7 +236,7 @@ class MainActivity : ComponentActivity() {
 
                         if (showRename) {
                             var newName by remember { mutableStateOf(walletName) }
-                            AlertDialog(onDismissRequest = { showRename = false }, confirmButton = { TextButton(onClick = { lifecycleScope.launch(Dispatchers.IO) { wm.getActive()?.let { wm.delete(it.id); wm.import(newName, it.seed); wm.init(); withContext(Dispatchers.Main) { walletName = newName; showRename = false } } } }) { Text("Lưu") } }, title = { Text("Đổi tên ví") }, text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true) })
+                            AlertDialog(onDismissRequest = { showRename = false }, confirmButton = { TextButton(onClick = { lifecycleScope.launch(Dispatchers.IO) { wm.getActive()?.let { val seed = it.seed; wm.delete(it.id); wm.import(newName, seed); wm.init(); withContext(Dispatchers.Main) { walletName = newName; showRename = false } } } }) { Text("Lưu") } }, title = { Text("Đổi tên ví") }, text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true) })
                         }
 
                         if (showDetails) {
