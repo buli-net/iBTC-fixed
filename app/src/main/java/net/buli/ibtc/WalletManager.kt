@@ -3,15 +3,16 @@ package net.buli.ibtc
 import android.content.Context
 import org.bitcoinj.core.Address
 import org.bitcoinj.core.Coin
+import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.script.Script
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.KeyChainGroup
 import org.bitcoinj.wallet.Wallet
-import org.bitcoinj.wallet.Wallet.SendRequest
 import java.io.File
 import java.net.URL
+import java.security.SecureRandom
 import java.util.Date
 
 data class WalletInfo(val id: String, val name: String, val seed: String)
@@ -37,9 +38,8 @@ class WalletManager(private val ctx: Context) {
 
     fun create(name: String): WalletInfo {
         val id = System.currentTimeMillis().toString()
-        // bitcoinj 0.15: constructor (entropyBits, passphrase, creationTime)
-        val seed = DeterministicSeed(128, "", System.currentTimeMillis() / 1000)
-        val mnemonic = seed.mnemonicCode?.joinToString(" ") ?: ""
+        val seed = DeterministicSeed(SecureRandom(), 128, "")
+        val mnemonic = seed.mnemonicCode!!.joinToString(" ")
         val info = WalletInfo(id, name.ifBlank { "Ví $id" }, mnemonic)
         save(info)
         active = info
@@ -50,8 +50,7 @@ class WalletManager(private val ctx: Context) {
         return try {
             val words = seedPhrase.trim().split("\\s+".toRegex())
             if (words.size < 12) return null
-            // constructor (List<String>, entropy, passphrase, time)
-            DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
+            DeterministicSeed(null, words, System.currentTimeMillis() / 1000)
             val id = System.currentTimeMillis().toString()
             val info = WalletInfo(id, name.ifBlank { "Imported" }, words.joinToString(" "))
             save(info)
@@ -78,12 +77,11 @@ class WalletManager(private val ctx: Context) {
     fun init() {
         val info = getActive() ?: return
         val words = info.seed.split(" ")
-        val seed = DeterministicSeed(words, null, "", 0L)
+        val seed = DeterministicSeed(null, words, 0L)
         kit = object : WalletAppKit(params, Script.ScriptType.P2WPKH,
             KeyChainGroup.builder(params).fromSeed(seed).build(),
             File(ctx.filesDir, info.id), "ibtc") {
             override fun onSetupCompleted() {
-                // fix line 152
                 wallet().setAllowSpendingUnconfirmedTransactions(true)
             }
         }.apply {
@@ -100,9 +98,14 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun onProgress(cb: (Int, String) -> Unit) {
-        kit?.setDownloadListener { pct, _ ->
-            cb(pct, if (pct < 100) "Đang sync $pct%" else "Đã sync")
-        }
+        kit?.setDownloadListener(object : DownloadProgressTracker() {
+            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
+                cb(pct.toInt(), if (pct < 99) "Đang sync ${pct.toInt()}%" else "Đã sync")
+            }
+            override fun doneDownload() {
+                cb(100, "Đã sync")
+            }
+        })
     }
 
     fun getBalance(): Double =
@@ -130,8 +133,7 @@ class WalletManager(private val ctx: Context) {
         return try {
             val w = kit!!.wallet()
             val addr = Address.fromString(params, to)
-            val req = SendRequest.to(addr, Coin.parseCoin(amountBTC.toString()))
-            // fix line 219-220
+            val req = Wallet.SendRequest.to(addr, Coin.parseCoin(amountBTC.toString()))
             req.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
             w.completeTx(req)
             w.commitTx(req.tx)
