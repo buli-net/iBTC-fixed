@@ -4,6 +4,7 @@ import android.content.Context
 import org.bitcoinj.core.NetworkParameters
 import org.bitcoinj.crypto.MnemonicCode
 import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.wallet.DeterministicKeyChain
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.KeyChainGroup
 import org.bitcoinj.wallet.Wallet
@@ -21,7 +22,8 @@ object WalletManager {
         SecureRandom().nextBytes(entropy)
         val mnemonic = MnemonicCode.INSTANCE.toMnemonic(entropy)
         val seed = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis()/1000)
-        val keyChainGroup = KeyChainGroup.builder(params).addChain(seed).build()
+        val keyChain = DeterministicKeyChain.builder().seed(seed).build()
+        val keyChainGroup = KeyChainGroup.builder(params).addChain(keyChain).build()
         val w = Wallet(params, keyChainGroup)
         w.saveToFile(walletFile(c))
         return mnemonic
@@ -31,7 +33,8 @@ object WalletManager {
         return try{
             val list = words.trim().split(" ")
             val seed = DeterministicSeed(list, null, "", 0L)
-            val keyChainGroup = KeyChainGroup.builder(params).addChain(seed).build()
+            val keyChain = DeterministicKeyChain.builder().seed(seed).build()
+            val keyChainGroup = KeyChainGroup.builder(params).addChain(keyChain).build()
             val w = Wallet(params, keyChainGroup)
             w.saveToFile(walletFile(c))
             true
