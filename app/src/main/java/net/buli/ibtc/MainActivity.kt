@@ -3,9 +3,7 @@ package net.buli.ibtc
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -24,14 +22,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.*
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -39,7 +35,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var wm: WalletManager // Quản lý tất cả ví
     private var qrCallback: ((String) -> Unit)? = null
     
-    // Launcher quét QR
+    // Launcher quét QR địa chỉ nhận
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { qrCallback?.invoke(it) }
     }
@@ -51,20 +47,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
-                var price by remember { mutableStateOf(0.0) } // Tỷ giá BTC
+                var price by remember { mutableStateOf(0.0) } // Tỷ giá BTC/USD
                 var activeId by remember { mutableStateOf(wm.getActive()?.id ?: "") }
 
-                // Khởi tạo ví khi app mở
+                // Khởi tạo ví khi app mở - FIX: load tỷ giá ngay
                 LaunchedEffect(hasWallet) {
                     if (hasWallet && wm.hasWallets()) {
                         withContext(Dispatchers.IO) {
                             wm.init()
-                            price = wm.price() // FIX: load tỷ giá ngay
+                            price = wm.price()
                             activeId = wm.getActive()?.id ?: ""
                         }
                     }
                 }
-
 
                 if (!hasWallet) {
                     // Màn hình chào khi chưa có ví
@@ -122,7 +117,7 @@ class MainActivity : ComponentActivity() {
                             text = {
                                 Column {
                                     OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tên") })
-                                    OutlinedTextField(value = seed, onValueChange = { seed = it }, label = { Text("Seed") })
+                                    OutlinedTextField(value = seed, onValueChange = { seed = it }, label = { Text("Seed 12 từ") })
                                 }
                             }
                         )
@@ -146,7 +141,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             } else when (tab) {
                                 0 -> {
-                                    // TAB SỐ DƯ
+                                    // TAB 1: SỐ DƯ VÀ LỊCH SỬ
                                     var balance by remember { mutableStateOf(0.0) }
                                     var progress by remember { mutableStateOf(0) }
                                     var status by remember { mutableStateOf("Chưa sync") }
@@ -158,7 +153,7 @@ class MainActivity : ComponentActivity() {
                                         withContext(Dispatchers.IO) {
                                             balance = wm.getBalance()
                                             txs = wm.getTransactions()
-                                            price = wm.price() // FIX: luôn cập nhật giá
+                                            price = wm.price()
                                         }
                                     }
 
@@ -188,8 +183,6 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxWidth()
                                         ) { Text("SYNC NGAY") }
 
-
-
                                         Spacer(Modifier.height(16.dp))
                                         Text("Lịch sử", fontWeight = FontWeight.Bold)
                                         LazyColumn(Modifier.fillMaxSize()) {
@@ -210,7 +203,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 
                                 1 -> {
-                                    // TAB QUẢN LÝ VÍ
+                                    // TAB 2: QUẢN LÝ VÍ - GỬI NHẬN
                                     val ctx = LocalContext.current
                                     var wallets by remember { mutableStateOf(wm.getAll()) }
                                     var to by remember { mutableStateOf("") }
@@ -251,7 +244,7 @@ class MainActivity : ComponentActivity() {
                                                         IconButton(onClick = { expanded = true }) { Text("⋮") }
                                                         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                                             DropdownMenuItem(
-                                                                text = { Text("Chuyển") },
+                                                                text = { Text("Chuyển sang ví này") },
                                                                 onClick = {
                                                                     expanded = false
                                                                     lifecycleScope.launch(Dispatchers.IO) {
@@ -267,7 +260,7 @@ class MainActivity : ComponentActivity() {
                                                                 }
                                                             )
                                                             DropdownMenuItem(
-                                                                text = { Text("Xóa") },
+                                                                text = { Text("Xóa ví") },
                                                                 onClick = {
                                                                     expanded = false
                                                                     lifecycleScope.launch(Dispatchers.IO) {
@@ -276,7 +269,7 @@ class MainActivity : ComponentActivity() {
                                                                         wm.delete(w.id)
                                                                         withContext(Dispatchers.Main) {
                                                                             wallets = wm.getAll()
-                                                                            // FIX: xóa ví gốc hay ví phụ đều không văng
+                                                                            // FIX: xóa ví gốc hay ví phụ đều không văng app
                                                                             if (count == 1 || wallets.isEmpty()) {
                                                                                 hasWallet = false
                                                                             } else {
@@ -318,11 +311,22 @@ class MainActivity : ComponentActivity() {
                                                     }
                                                 },
                                                 modifier = Modifier.fillMaxWidth()
-                                            ) { Text("THÊM VÍ") }
+                                            ) { Text("THÊM VÍ MỚI") }
 
                                             Spacer(Modifier.height(16.dp))
                                             Text("Gửi BTC", fontWeight = FontWeight.Bold)
-                                            OutlinedTextField(value = to, onValueChange = { to = it }, label = { Text("Địa chỉ") }, modifier = Modifier.fillMaxWidth(), trailingIcon = { TextButton(onClick = { qrCallback = { to = it }; qrLauncher.launch(ScanOptions()) }) { Text("QR") } })
+                                            OutlinedTextField(
+                                                value = to, 
+                                                onValueChange = { to = it }, 
+                                                label = { Text("Địa chỉ nhận") }, 
+                                                modifier = Modifier.fillMaxWidth(), 
+                                                trailingIcon = { 
+                                                    TextButton(onClick = { 
+                                                        qrCallback = { to = it }
+                                                        qrLauncher.launch(ScanOptions()) 
+                                                    }) { Text("QR") } 
+                                                }
+                                            )
                                             OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("Số BTC") }, modifier = Modifier.fillMaxWidth())
                                             
                                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -337,71 +341,81 @@ class MainActivity : ComponentActivity() {
                                                 Text("Nhanh (${fees.fast})")
                                                 Spacer(Modifier.width(8.dp))
                                                 RadioButton(selected = feeSel == 3, onClick = { feeSel = 3 })
-                                                Text("Tùy")
+                                                Text("Tùy chỉnh")
                                             }
                                             if (feeSel == 3) {
                                                 OutlinedTextField(value = customFee, onValueChange = { customFee = it }, label = { Text("sat/vB") })
                                             }
                                             
-                                            Button(onClick = { CoroutineScope(Dispatchers.IO).launch { result = wm.send(to, amount.toDoubleOrNull() ?: 0.0, feeRate) } }, modifier = Modifier.fillMaxWidth()) { Text("GỬI") }
-                                            if (result.isNotEmpty()) { Text(result, fontSize = 12.sp) }
+                                            Button(
+                                                onClick = { 
+                                                    CoroutineScope(Dispatchers.IO).launch { 
+                                                        result = wm.send(to, amount.toDoubleOrNull() ?: 0.0, feeRate) 
+                                                    } 
+                                                }, 
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("GỬI") }
+                                            if (result.isNotEmpty()) { 
+                                                Text(result, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp)) 
+                                            }
 
                                             Spacer(Modifier.height(16.dp))
                                             Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                             
+                                            // Tạo QR code địa chỉ - FIX: căn giữa
                                             val qr = remember(currentAddress) {
                                                 val size = 512
                                                 val bits = QRCodeWriter().encode(currentAddress, BarcodeFormat.QR_CODE, size, size)
                                                 Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply {
-                                                    for (x in 0 until size) { for (y in 0 until size) { setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) } }
+                                                    for (x in 0 until size) { 
+                                                        for (y in 0 until size) { 
+                                                            setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) 
+                                                        } 
+                                                    }
                                                 }
                                             }
                                             
-                                            // FIX: QR căn giữa
                                             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Image(bitmap = qr.asImageBitmap(), contentDescription = null, modifier = Modifier.size(220.dp))
+                                                Image(bitmap = qr.asImageBitmap(), contentDescription = "QR địa chỉ", modifier = Modifier.size(220.dp))
                                                 Spacer(Modifier.height(8.dp))
-                                                SelectionContainer { Text(text = currentAddress, fontSize = 13.sp, fontWeight = FontWeight.Medium) }
+                                                SelectionContainer { 
+                                                    Text(text = currentAddress, fontSize = 13.sp, fontWeight = FontWeight.Medium) 
+                                                }
                                             }
                                             
-                                            Button(onClick = { val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; cm.setPrimaryClip(ClipData.newPlainText("btc", currentAddress)) }, modifier = Modifier.fillMaxWidth()) { Text("COPY") }
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(
+                                                onClick = { 
+                                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    cm.setPrimaryClip(ClipData.newPlainText("btc", currentAddress))
+                                                    Toast.makeText(ctx, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
+                                                }, 
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("COPY ĐỊA CHỈ") }
                                             
-                                            // NÚT SEED + FILE
-                                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Button(onClick = { showSeed = true }, modifier = Modifier.weight(1f)) { Text("XUẤT SEED") }
-                                                OutlinedButton(
-                                                    onClick = {
-                                                        try {
-                                                            val seed = wm.getSeed()
-                                                            val filename = "seed_${wm.getActive()?.name ?: "wallet"}_${System.currentTimeMillis()}.txt"
-                                                            ctx.openFileOutput(filename, Context.MODE_PRIVATE).use { it.write(seed.toByteArray()) }
-                                                            val file = File(ctx.filesDir, filename)
-                                                            val uri: Uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
-                                                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                                                type = "text/plain"
-                                                                putExtra(Intent.EXTRA_STREAM, uri)
-                                                                putExtra(Intent.EXTRA_SUBJECT, "iBTC Seed Backup")
-                                                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                            }
-                                                            ctx.startActivity(Intent.createChooser(intent, "Chia sẻ seed"))
-                                                        } catch (e: Exception) {
-                                                            Toast.makeText(ctx, "Lỗi: ${e.message}", Toast.LENGTH_LONG).show()
-                                                        }
-                                                    },
-                                                    modifier = Modifier.weight(1f)
-                                                ) { Text("FILE") }
+                                            Spacer(Modifier.height(8.dp))
+                                            // ĐÃ BỎ NÚT FILE - chỉ còn nút XUẤT SEED
+                                            Button(
+                                                onClick = { showSeed = true },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { 
+                                                Text("XUẤT SEED") 
                                             }
                                         }
                                     }
 
-                                    // DIALOG SEED VỚI QR
+                                    // DIALOG HIỂN THỊ SEED VỚI QR TO
                                     if (showSeed) {
                                         val seedText = wm.getSeed()
                                         val seedQr = remember(seedText) {
                                             val size = 400
                                             val bits = QRCodeWriter().encode(seedText, BarcodeFormat.QR_CODE, size, size)
                                             Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply {
-                                                for (x in 0 until size) { for (y in 0 until size) { setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) } }
+                                                for (x in 0 until size) { 
+                                                    for (y in 0 until size) { 
+                                                        setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) 
+                                                    } 
+                                                }
                                             }
                                         }
                                         AlertDialog(
@@ -410,20 +424,23 @@ class MainActivity : ComponentActivity() {
                                                 TextButton(onClick = {
                                                     val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                                     cm.setPrimaryClip(ClipData.newPlainText("seed", seedText))
-                                                    Toast.makeText(ctx, "Đã copy", Toast.LENGTH_SHORT).show()
+                                                    Toast.makeText(ctx, "Đã copy seed", Toast.LENGTH_SHORT).show()
                                                     showSeed = false
                                                 }) { Text("Copy & Đóng") }
                                             },
-                                            title = { Text("Seed - BẢO MẬT") },
+                                            dismissButton = {
+                                                TextButton(onClick = { showSeed = false }) { Text("Đóng") }
+                                            },
+                                            title = { Text("Seed - BẢO MẬT TUYỆT ĐỐI") },
                                             text = {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Image(bitmap = seedQr.asImageBitmap(), contentDescription = null, modifier = Modifier.size(220.dp))
+                                                    Image(bitmap = seedQr.asImageBitmap(), contentDescription = "QR Seed", modifier = Modifier.size(220.dp))
                                                     Spacer(Modifier.height(12.dp))
                                                     SelectionContainer {
                                                         Text(text = seedText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
                                                     }
                                                     Spacer(Modifier.height(8.dp))
-                                                    Text(text = "Lưu offline, không chụp màn hình", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                                    Text(text = "Lưu offline, không chụp màn hình, không gửi cho ai", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
                                                 }
                                             }
                                         )
@@ -431,6 +448,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 
                                 2 -> {
+                                    // TAB 3: TÙY CHỈNH
                                     var api by remember { mutableStateOf(wm.getFeeApiUrl()) }
                                     var refresh by remember { mutableStateOf(wm.getRefreshSec().toString()) }
                                     var custom by remember { mutableStateOf(wm.getDefaultCustomFee().toString()) }
@@ -438,10 +456,22 @@ class MainActivity : ComponentActivity() {
                                     
                                     Column(Modifier.fillMaxSize().padding(16.dp)) {
                                         Text(text = "Tùy chỉnh", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                                        OutlinedTextField(value = api, onValueChange = { api = it }, label = { Text("API") }, modifier = Modifier.fillMaxWidth())
-                                        OutlinedTextField(value = refresh, onValueChange = { refresh = it }, label = { Text("Refresh") }, modifier = Modifier.fillMaxWidth())
-                                        OutlinedTextField(value = custom, onValueChange = { custom = it }, label = { Text("Phí") }, modifier = Modifier.fillMaxWidth())
-                                        Button(onClick = { wm.setFeeApiUrl(api); wm.setRefreshSec(refresh.toLongOrNull() ?: 60); wm.setDefaultCustomFee(custom.toLongOrNull() ?: 10); Toast.makeText(ctx, "Đã lưu", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("LƯU") }
+                                        Spacer(Modifier.height(16.dp))
+                                        OutlinedTextField(value = api, onValueChange = { api = it }, label = { Text("API phí") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(8.dp))
+                                        OutlinedTextField(value = refresh, onValueChange = { refresh = it }, label = { Text("Thời gian refresh (giây)") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(8.dp))
+                                        OutlinedTextField(value = custom, onValueChange = { custom = it }, label = { Text("Phí tùy chỉnh mặc định") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(16.dp))
+                                        Button(
+                                            onClick = { 
+                                                wm.setFeeApiUrl(api)
+                                                wm.setRefreshSec(refresh.toLongOrNull() ?: 60)
+                                                wm.setDefaultCustomFee(custom.toLongOrNull() ?: 10)
+                                                Toast.makeText(ctx, "Đã lưu cài đặt", Toast.LENGTH_SHORT).show() 
+                                            }, 
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("LƯU CÀI ĐẶT") }
                                     }
                                 }
                             }
