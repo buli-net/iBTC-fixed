@@ -51,7 +51,13 @@ class WalletManager(private val ctx: Context) {
             val list = mutableListOf<WalletInfo>()
             for (i in 0 until arr.length()) {
                 val o = arr.getJSONObject(i)
-                list.add(WalletInfo(o.getString("id"), o.getString("name"), o.getString("seed")))
+                list.add(
+                    WalletInfo(
+                        o.getString("id"),
+                        o.getString("name"),
+                        o.getString("seed")
+                    )
+                )
             }
             list
         } catch (e: Exception) {
@@ -73,10 +79,11 @@ class WalletManager(private val ctx: Context) {
 
     fun getActive(): WalletInfo? {
         val id = prefs.getString(activeKey, null)
-        if (id == null) {
-            return getAll().firstOrNull()
+        return if (id == null) {
+            getAll().firstOrNull()
+        } else {
+            getAll().find { it.id == id }
         }
-        return getAll().find { it.id == id }
     }
 
     fun create(name: String): WalletInfo {
@@ -116,23 +123,25 @@ class WalletManager(private val ctx: Context) {
         try {
             File(ctx.filesDir, "$id.wallet").delete()
             File(ctx.filesDir, "$id.spvchain").delete()
-        } catch (e: Exception) {}
-    }
-
-    fun switchTo(id: String) {
-        prefs.edit().putString(activeKey, id).apply()
+        } catch (e: Exception) {
+        }
     }
 
     fun stop() {
         try {
             kit?.stopAsync()
             kit?.awaitTerminated()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
         kit = null
     }
 
     fun isReady(): Boolean {
-        return try { kit != null && kit!!.isRunning } catch (e: Exception) { false }
+        return try {
+            kit != null && kit!!.isRunning
+        } catch (e: Exception) {
+            false
+        }
     }
 
     fun init() {
@@ -145,8 +154,12 @@ class WalletManager(private val ctx: Context) {
         }
         kit!!.setDownloadListener(object : DownloadProgressTracker() {
             override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
-                progressCallback?.invoke(pct.toInt(), if (pct < 100) "Đang sync ${pct.toInt()}%" else "Đã đồng bộ")
+                progressCallback?.invoke(
+                    pct.toInt(),
+                    if (pct < 100) "Đang sync ${pct.toInt()}%" else "Đã đồng bộ"
+                )
             }
+
             override fun doneDownload() {
                 progressCallback?.invoke(100, "Đã đồng bộ")
             }
@@ -162,11 +175,19 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun getBalance(): Double {
-        return try { kit?.wallet()?.balance?.toBtc()?.toDouble() ?: 0.0 } catch (e: Exception) { 0.0 }
+        return try {
+            kit?.wallet()?.balance?.toBtc()?.toDouble() ?: 0.0
+        } catch (e: Exception) {
+            0.0
+        }
     }
 
     fun getAddress(): String {
-        return try { kit?.wallet()?.currentReceiveAddress().toString() } catch (e: Exception) { "" }
+        return try {
+            kit?.wallet()?.currentReceiveAddress().toString()
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     fun getSeed(): String {
@@ -178,7 +199,12 @@ class WalletManager(private val ctx: Context) {
             kit?.wallet()?.walletTransactions?.map {
                 val tx = it.transaction
                 val v = tx.getValue(kit!!.wallet()).toBtc().toDouble()
-                TransactionInfo(tx.txId.toString(), kotlin.math.abs(v), if (v >= 0) "Nhận" else "Gửi", tx.updateTime ?: Date())
+                TransactionInfo(
+                    tx.txId.toString(),
+                    kotlin.math.abs(v),
+                    if (v >= 0) "Nhận" else "Gửi",
+                    tx.updateTime ?: Date()
+                )
             }?.sortedByDescending { it.time } ?: emptyList()
         } catch (e: Exception) {
             emptyList()
@@ -212,17 +238,14 @@ class WalletManager(private val ctx: Context) {
 
     fun getFeeRates(): FeeRates {
         return try {
-            val j = org.json.JSONObject(URL(getFeeApiUrl()).readText())
-            FeeRates(j.optLong("hourFee", 5), j.optLong("halfHourFee", 10), j.optLong("fastestFee", 20))
+            val j = org.json.JSONObject(URL("https://mempool.space/api/v1/fees/recommended").readText())
+            FeeRates(
+                j.optLong("hourFee", 5),
+                j.optLong("halfHourFee", 10),
+                j.optLong("fastestFee", 20)
+            )
         } catch (e: Exception) {
             FeeRates(5, 10, 20)
         }
     }
-
-    fun getFeeApiUrl(): String = prefs.getString("fee_api", "https://mempool.space/api/v1/fees/recommended")!!
-    fun setFeeApiUrl(v: String) = prefs.edit().putString("fee_api", v).apply()
-    fun getRefreshSec(): Long = prefs.getLong("refresh", 60)
-    fun setRefreshSec(v: Long) = prefs.edit().putLong("refresh", v).apply()
-    fun getDefaultCustomFee(): Long = prefs.getLong("custom_fee", 10)
-    fun setDefaultCustomFee(v: Long) = prefs.edit().putLong("custom_fee", v).apply()
 }
