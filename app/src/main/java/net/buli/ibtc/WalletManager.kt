@@ -4,17 +4,33 @@ import android.content.Context
 import android.content.SharedPreferences
 import org.bitcoinj.core.Address
 import org.bitcoinj.core.Coin
+import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.Wallet.SendRequest
 import java.io.File
 import java.net.URL
 import java.util.*
 
-data class WalletInfo(val id: String, val name: String, val seed: String)
-data class TransactionInfo(val txId: String, val amount: Double, val type: String, val time: Date)
-data class FeeRates(val slow: Long, val normal: Long, val fast: Long)
+data class WalletInfo(
+    val id: String,
+    val name: String,
+    val seed: String
+)
+
+data class TransactionInfo(
+    val txId: String,
+    val amount: Double,
+    val type: String,
+    val time: Date
+)
+
+data class FeeRates(
+    val slow: Long,
+    val normal: Long,
+    val fast: Long
+)
 
 class WalletManager(private val ctx: Context) {
     private val params = MainNetParams.get()
@@ -69,7 +85,11 @@ class WalletManager(private val ctx: Context) {
     fun create(name: String): WalletInfo {
         val seedObj = DeterministicSeed(System.currentTimeMillis(), null, "", 128)
         val mnemonic = seedObj.mnemonicCode!!.joinToString(" ")
-        val finalName = if (name.isBlank()) "Ví ${getAll().size + 1}" else name
+        val finalName = if (name.isBlank()) {
+            "Ví ${getAll().size + 1}"
+        } else {
+            name
+        }
         val info = WalletInfo(UUID.randomUUID().toString(), finalName, mnemonic)
         val list = getAll().toMutableList()
         list.add(info)
@@ -81,9 +101,15 @@ class WalletManager(private val ctx: Context) {
     fun import(name: String, seed: String): WalletInfo? {
         return try {
             val words = seed.trim().split("\\s+".toRegex())
-            if (words.size < 12) return null
+            if (words.size < 12) {
+                return null
+            }
             DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
-            val finalName = if (name.isBlank()) "Import ${getAll().size + 1}" else name
+            val finalName = if (name.isBlank()) {
+                "Import ${getAll().size + 1}"
+            } else {
+                name
+            }
             val info = WalletInfo(UUID.randomUUID().toString(), finalName, seed.trim())
             val list = getAll().toMutableList()
             list.add(info)
@@ -106,8 +132,12 @@ class WalletManager(private val ctx: Context) {
         try {
             val walletFile = File(ctx.filesDir, "$id.wallet")
             val chainFile = File(ctx.filesDir, "$id.spvchain")
-            if (walletFile.exists()) walletFile.delete()
-            if (chainFile.exists()) chainFile.delete()
+            if (walletFile.exists()) {
+                walletFile.delete()
+            }
+            if (chainFile.exists()) {
+                chainFile.delete()
+            }
         } catch (e: Exception) {
         }
     }
@@ -138,7 +168,9 @@ class WalletManager(private val ctx: Context) {
 
     fun init() {
         val active = getActive()
-        if (active == null) return
+        if (active == null) {
+            return
+        }
         stop()
         val dir = ctx.filesDir
         kit = object : WalletAppKit(params, dir, active.id) {
@@ -148,12 +180,25 @@ class WalletManager(private val ctx: Context) {
                 }
             }
         }
-        kit!!.setDownloadListener { pct, blocksLeft, date ->
-            if (progressCallback != null) {
-                val status = if (pct < 100) "Đang sync $pct%" else "Đã đồng bộ"
-                progressCallback!!.invoke(pct, status)
+        kit!!.setDownloadListener(object : DownloadProgressTracker() {
+            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
+                val p = pct.toInt()
+                if (progressCallback != null) {
+                    val status = if (p < 100) {
+                        "Đang sync $p%"
+                    } else {
+                        "Đã đồng bộ"
+                    }
+                    progressCallback!!.invoke(p, status)
+                }
             }
-        }
+
+            override fun doneDownload() {
+                if (progressCallback != null) {
+                    progressCallback!!.invoke(100, "Đã đồng bộ")
+                }
+            }
+        })
         kit!!.setBlockingStartup(false)
         kit!!.setAutoSave(true)
         kit!!.startAsync()
@@ -219,10 +264,12 @@ class WalletManager(private val ctx: Context) {
     fun send(to: String, amountBtc: Double, feePerKb: Long): String {
         return try {
             val wallet = kit?.wallet()
-            if (wallet == null) return "Lỗi: ví chưa sẵn sàng"
+            if (wallet == null) {
+                return "Lỗi: ví chưa sẵn sàng"
+            }
             val address = Address.fromString(params, to)
             val amount = Coin.valueOf((amountBtc * 100000000).toLong())
-            val req = Wallet.SendRequest.to(address, amount)
+            val req = SendRequest.to(address, amount)
             req.feePerKb = Coin.valueOf(feePerKb * 1000)
             val result = wallet.sendCoins(req)
             val tx = result.tx
@@ -246,7 +293,9 @@ class WalletManager(private val ctx: Context) {
             return usd
         } catch (e: Exception) {
             val last = prefs.getFloat("last_price", 0f)
-            if (last > 0) return last.toDouble()
+            if (last > 0) {
+                return last.toDouble()
+            }
             return 65000.0
         }
     }
