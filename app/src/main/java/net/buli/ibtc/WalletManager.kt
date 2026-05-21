@@ -14,104 +14,193 @@ import java.security.SecureRandom
 import java.util.Date
 import kotlin.math.abs
 
-// Dữ liệu 1 ví
-data class WalletInfo(val id: String, var name: String, val seed: String)
-// 3 mức phí
-data class FeeRates(val slow: Long, val normal: Long, val fast: Long)
-// 1 giao dịch
-data class TransactionInfo(val txId: String, val amount: Double, val time: Date, val type: String)
+// Lưu thông tin 1 ví
+data class WalletInfo(
+    val id: String,      // ID duy nhất
+    var name: String,    // Tên hiển thị
+    val seed: String     // 12 từ mnemonic
+)
+
+// Lưu 3 mức phí
+data class FeeRates(
+    val slow: Long,      // phí chậm
+    val normal: Long,    // phí thường
+    val fast: Long       // phí nhanh
+)
+
+// Lưu 1 giao dịch
+data class TransactionInfo(
+    val txId: String,    // mã giao dịch
+    val amount: Double,  // số BTC
+    val time: Date,      // thời gian
+    val type: String     // Nhận hoặc Gửi
+)
 
 class WalletManager(private val ctx: Context) {
-    private val params = MainNetParams.get() // mạng Bitcoin mainnet
+    // Tham số mạng Bitcoin chính
+    private val params = MainNetParams.get()
+    // Nơi lưu ví
     private val prefs = ctx.getSharedPreferences("ibtc_wallets", Context.MODE_PRIVATE)
+    // Ví bitcoinj hiện tại
     private var wallet: Wallet? = null
+    // Cờ báo ví đã sẵn sàng
     @Volatile private var ready = false
+    // Callback báo tiến độ
     private var progressCb: ((Int, String) -> Unit)? = null
 
-    // API dự phòng lấy số dư
+    // Danh sách API lấy số dư (dự phòng)
     private val balanceApis = listOf(
         "https://blockstream.info/api/address/",
         "https://mempool.space/api/address/",
         "https://blockchain.info/q/addressbalance/"
     )
-    // API dự phòng lấy lịch sử
+    // Danh sách API lấy lịch sử
     private val txApis = listOf(
         "https://blockstream.info/api/address/",
         "https://mempool.space/api/address/"
     )
 
-    // ===== CÀI ĐẶT =====
-    fun getFeeApiUrl(): String = prefs.getString("fee_url", "https://mempool.space/api/v1/fees/recommended")!!
-    fun setFeeApiUrl(url: String) { prefs.edit().putString("fee_url", url).apply() }
-    fun getRefreshSec(): Long = prefs.getLong("refresh_sec", 60)
-    fun setRefreshSec(sec: Long) { prefs.edit().putLong("refresh_sec", sec).apply() }
-    fun getDefaultCustomFee(): Long = prefs.getLong("custom_fee", 10)
-    fun setDefaultCustomFee(fee: Long) { prefs.edit().putLong("custom_fee", fee).apply() }
-
-    fun onProgress(cb: (Int, String) -> Unit) { progressCb = cb }
-    fun hasWallets(): Boolean = getAll().isNotEmpty()
-
+    // Lấy URL API phí
+    fun getFeeApiUrl(): String {
+        return prefs.getString("fee_url", "https://mempool.space/api/v1/fees/recommended")!!
+    }
+    // Lưu URL API phí
+    fun setFeeApiUrl(url: String) {
+        prefs.edit().putString("fee_url", url).apply()
+    }
+    // Lấy thời gian tự động refresh
+    fun getRefreshSec(): Long {
+        return prefs.getLong("refresh_sec", 60)
+    }
+    // Lưu thời gian refresh
+    fun setRefreshSec(sec: Long) {
+        prefs.edit().putLong("refresh_sec", sec).apply()
+    }
+    // Lấy phí tùy chỉnh mặc định
+    fun getDefaultCustomFee(): Long {
+        return prefs.getLong("custom_fee", 10)
+    }
+    // Lưu phí tùy chỉnh
+    fun setDefaultCustomFee(fee: Long) {
+        prefs.edit().putLong("custom_fee", fee).apply()
+    }
+    // Đăng ký callback tiến độ
+    fun onProgress(cb: (Int, String) -> Unit) {
+        progressCb = cb
+    }
+    // Kiểm tra có ví nào không
+    fun hasWallets(): Boolean {
+        return getAll().isNotEmpty()
+    }
+    // Lấy danh sách tất cả ví
     fun getAll(): List<WalletInfo> {
         val ids = prefs.getStringSet("ids", emptySet()) ?: emptySet()
-        return ids.map { id -> WalletInfo(id, prefs.getString("n_$id", "Ví")!!, prefs.getString("s_$id", "")!!) }
+        return ids.map { id ->
+            val name = prefs.getString("n_$id", "Ví")!!
+            val seed = prefs.getString("s_$id", "")!!
+            WalletInfo(id, name, seed)
+        }
     }
-
-    private fun saveIds(ids: Set<String>) { prefs.edit().putStringSet("ids", ids).apply() }
-
+    // Lưu danh sách ID
+    private fun saveIds(ids: Set<String>) {
+        prefs.edit().putStringSet("ids", ids).apply()
+    }
+    // Tạo ví mới
     fun create(name: String): WalletInfo {
         val id = System.currentTimeMillis().toString()
-        val entropy = ByteArray(16); SecureRandom().nextBytes(entropy)
+        val entropy = ByteArray(16)
+        SecureRandom().nextBytes(entropy)
         val seed = DeterministicSeed(entropy, "", System.currentTimeMillis() / 1000)
         val mnemonic = seed.mnemonicCode?.joinToString(" ") ?: ""
-        val info = WalletInfo(id, if (name.isBlank()) "Ví mới" else name, mnemonic)
-        val ids = getAll().map { it.id }.toMutableSet().apply { add(id) }
+        val finalName = if (name.isBlank()) "Ví mới" else name
+        val info = WalletInfo(id, finalName, mnemonic)
+        val ids = getAll().map { it.id }.toMutableSet()
+        ids.add(id)
         saveIds(ids)
-        prefs.edit().putString("n_$id", info.name).putString("s_$id", mnemonic).apply()
-        setActive(id); return info
+        prefs.edit().putString("n_$id", info.name).apply()
+        prefs.edit().putString("s_$id", mnemonic).apply()
+        setActive(id)
+        return info
     }
-
-    fun import(name: String, mnemonic: String): WalletInfo? = try {
-        DeterministicSeed(mnemonic.trim().split("\\s+".toRegex()), null, "", 0)
-        val id = System.currentTimeMillis().toString()
-        val info = WalletInfo(id, if (name.isBlank()) "Ví import" else name, mnemonic.trim())
-        val ids = getAll().map { it.id }.toMutableSet().apply { add(id) }
-        saveIds(ids)
-        prefs.edit().putString("n_$id", info.name).putString("s_$id", info.seed).apply()
-        setActive(id); info
-    } catch (e: Exception) { null }
-
-    fun setActive(id: String) { prefs.edit().putString("active", id).apply() }
-    fun getActive(): WalletInfo? = getAll().find { it.id == prefs.getString("active", null) }
-    fun rename(id: String, n: String) { prefs.edit().putString("n_$id", n).apply() }
-
-    // FIX XÓA VÍ: xóa active, chuyển ví, không để load mãi
-    fun delete(id: String) {
-        val ids = getAll().map { it.id }.toMutableSet().apply { remove(id) }
-        saveIds(ids)
-        prefs.edit().remove("n_$id").remove("s_$id").apply()
-        if (prefs.getString("active", null) == id) {
-            prefs.edit().remove("active").apply() // xóa active cũ
-            if (ids.isNotEmpty()) { setActive(ids.first()) } // chọn ví khác nếu còn
+    // Import ví từ seed
+    fun import(name: String, mnemonic: String): WalletInfo? {
+        return try {
+            DeterministicSeed(mnemonic.trim().split("\\s+".toRegex()), null, "", 0)
+            val id = System.currentTimeMillis().toString()
+            val finalName = if (name.isBlank()) "Ví import" else name
+            val info = WalletInfo(id, finalName, mnemonic.trim())
+            val ids = getAll().map { it.id }.toMutableSet()
+            ids.add(id)
+            saveIds(ids)
+            prefs.edit().putString("n_$id", info.name).apply()
+            prefs.edit().putString("s_$id", info.seed).apply()
+            setActive(id)
+            info
+        } catch (e: Exception) {
+            null
         }
-        wallet = null; ready = false
     }
-
-    fun switchTo(id: String) { setActive(id); init() }
-    fun isReady(): Boolean = ready && wallet != null
-
+    // Đặt ví đang dùng
+    fun setActive(id: String) {
+        prefs.edit().putString("active", id).apply()
+    }
+    // Lấy ví đang dùng
+    fun getActive(): WalletInfo? {
+        val activeId = prefs.getString("active", null)
+        return getAll().find { it.id == activeId }
+    }
+    // Đổi tên ví
+    fun rename(id: String, n: String) {
+        prefs.edit().putString("n_$id", n).apply()
+    }
+    // Xóa ví - ĐÃ FIX
+    fun delete(id: String) {
+        val ids = getAll().map { it.id }.toMutableSet()
+        ids.remove(id)
+        saveIds(ids)
+        prefs.edit().remove("n_$id").apply()
+        prefs.edit().remove("s_$id").apply()
+        val active = prefs.getString("active", null)
+        if (active == id) {
+            prefs.edit().remove("active").apply()
+            if (ids.isNotEmpty()) {
+                setActive(ids.first())
+            }
+        }
+        wallet = null
+        ready = false
+    }
+    // Chuyển sang ví khác
+    fun switchTo(id: String) {
+        setActive(id)
+        init()
+    }
+    // Kiểm tra ví sẵn sàng
+    fun isReady(): Boolean {
+        return ready && wallet != null
+    }
+    // Khởi tạo ví
     fun init() {
-        ready = false; val info = getActive() ?: return // nếu không có ví thì thoát
+        ready = false
+        val info = getActive()
+        if (info == null) return
         try {
             val seed = DeterministicSeed(info.seed.split(" "), null, "", 0)
             wallet = Wallet.fromSeed(params, seed, Script.ScriptType.P2PKH)
-            ready = true; progressCb?.invoke(100, "Đã đồng bộ")
-        } catch (_: Exception) {}
+            ready = true
+            progressCb?.invoke(100, "Đã đồng bộ")
+        } catch (_: Exception) {
+        }
     }
-
-    fun getAddress(): String = if (isReady()) wallet!!.currentReceiveAddress().toString() else ""
-
+    // Lấy địa chỉ nhận
+    fun getAddress(): String {
+        if (!isReady()) return ""
+        return wallet!!.currentReceiveAddress().toString()
+    }
+    // Lấy số dư
     fun getBalance(): Double {
-        val addr = getAddress(); if (addr.isEmpty()) return 0.0
+        val addr = getAddress()
+        if (addr.isEmpty()) return 0.0
         for (base in balanceApis) {
             try {
                 val response = URL(base + addr).readText()
@@ -119,20 +208,31 @@ class WalletManager(private val ctx: Context) {
                     val funded = """"funded_txo_sum":(\d+)""".toRegex().find(response)?.groupValues?.get(1)?.toLong() ?: 0L
                     val spent = """"spent_txo_sum":(\d+)""".toRegex().find(response)?.groupValues?.get(1)?.toLong() ?: 0L
                     (funded - spent) / 1e8
-                } else { response.toLong() / 1e8 }
-                prefs.edit().putString("cache_balance_$addr", balance.toString()).putLong("cache_time", System.currentTimeMillis()).apply()
-                progressCb?.invoke(100, "Đã đồng bộ"); return balance
-            } catch (_: Exception) { continue }
+                } else {
+                    response.toLong() / 1e8
+                }
+                prefs.edit().putString("cache_balance_$addr", balance.toString()).apply()
+                prefs.edit().putLong("cache_time", System.currentTimeMillis()).apply()
+                progressCb?.invoke(100, "Đã đồng bộ")
+                return balance
+            } catch (_: Exception) {
+                continue
+            }
         }
         val cached = prefs.getString("cache_balance_$addr", "0")?.toDouble() ?: 0.0
         val ageMin = (System.currentTimeMillis() - prefs.getLong("cache_time", 0)) / 60000
-        progressCb?.invoke(100, "Offline (cache ${ageMin} phút)"); return cached
+        progressCb?.invoke(100, "Offline (cache ${ageMin} phút)")
+        return cached
     }
-
-    fun getSeed(): String = getActive()?.seed ?: ""
-    fun sync() { progressCb?.invoke(100, "Đã đồng bộ") }
-
-    // Lấy giá BTC với 4 API dự phòng
+    // Lấy seed
+    fun getSeed(): String {
+        return getActive()?.seed ?: ""
+    }
+    // Đồng bộ
+    fun sync() {
+        progressCb?.invoke(100, "Đã đồng bộ")
+    }
+    // Lấy giá BTC
     fun price(): Double {
         val apis = listOf(
             "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
@@ -153,21 +253,28 @@ class WalletManager(private val ctx: Context) {
                     prefs.edit().putString("cache_price", price.toString()).apply()
                     return price
                 }
-            } catch (_: Exception) { continue }
+            } catch (_: Exception) {
+                continue
+            }
         }
         return prefs.getString("cache_price", "65000")?.toDouble() ?: 65000.0
     }
-
-    fun getFeeRates(): FeeRates = try {
-        val json = URL(getFeeApiUrl()).readText()
-        val fast = """"fastestFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 20L
-        val normal = """"halfHourFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 10L
-        val slow = """"hourFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 5L
-        FeeRates(slow, normal, fast)
-    } catch (_: Exception) { FeeRates(5, 10, 20) }
-
+    // Lấy phí
+    fun getFeeRates(): FeeRates {
+        return try {
+            val json = URL(getFeeApiUrl()).readText()
+            val fast = """"fastestFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 20L
+            val normal = """"halfHourFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 10L
+            val slow = """"hourFee":(\d+)""".toRegex().find(json)?.groupValues?.get(1)?.toLong() ?: 5L
+            FeeRates(slow, normal, fast)
+        } catch (_: Exception) {
+            FeeRates(5, 10, 20)
+        }
+    }
+    // Lấy lịch sử
     fun getTransactions(): List<TransactionInfo> {
-        if (!isReady()) return emptyList(); val addr = getAddress()
+        if (!isReady()) return emptyList()
+        val addr = getAddress()
         for (base in txApis) {
             try {
                 val json = URL(base + addr + "/txs").readText()
@@ -177,21 +284,30 @@ class WalletManager(private val ctx: Context) {
                     val txid = block.substringBefore("\"")
                     val time = """"block_time":(\d+)""".toRegex().find(block)?.groupValues?.get(1)?.toLong() ?: 0L
                     var received = 0L
-                    """"address":"$addr","value":(\d+)""".toRegex().findAll(block).forEach { received += it.groupValues[1].toLong() }
+                    val matches = """"address":"$addr","value":(\d+)""".toRegex().findAll(block)
+                    for (m in matches) {
+                        received += m.groupValues[1].toLong()
+                    }
                     val type = if (received > 0) "Nhận" else "Gửi"
-                    val amount = if (received > 0) received else { """"value":(\d+)""".toRegex().find(block)?.groupValues?.get(1)?.toLong() ?: 0L }
+                    val amount = if (received > 0) received else {
+                        """"value":(\d+)""".toRegex().find(block)?.groupValues?.get(1)?.toLong() ?: 0L
+                    }
                     list.add(TransactionInfo(txid, abs(amount) / 1e8, Date(time * 1000), type))
                 }
                 return list.sortedByDescending { it.time }
-            } catch (_: Exception) { continue }
+            } catch (_: Exception) {
+                continue
+            }
         }
         return emptyList()
     }
-
+    // Gửi BTC
     fun send(to: String, amount: Double, feeSatVb: Long): String {
         try {
             if (!isReady()) return "Ví chưa sẵn sàng"
-            val req = SendRequest.to(Address.fromString(params, to), Coin.valueOf((amount * 1e8).toLong()))
+            val target = Address.fromString(params, to)
+            val coin = Coin.valueOf((amount * 1e8).toLong())
+            val req = SendRequest.to(target, coin)
             req.feePerKb = Coin.valueOf(feeSatVb * 1000)
             wallet!!.completeTx(req)
             val tx = req.tx
@@ -200,13 +316,18 @@ class WalletManager(private val ctx: Context) {
             for (api in broadcastApis) {
                 try {
                     val conn = URL(api).openConnection() as HttpURLConnection
-                    conn.requestMethod = "POST"; conn.doOutput = true
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
                     conn.outputStream.write(hex.toByteArray())
                     val txid = conn.inputStream.bufferedReader().readText()
                     return "Đã gửi! TXID: $txid"
-                } catch (_: Exception) { continue }
+                } catch (_: Exception) {
+                    continue
+                }
             }
             return "Lỗi broadcast - thử lại sau"
-        } catch (e: Exception) { return "Lỗi: ${e.message}" }
+        } catch (e: Exception) {
+            return "Lỗi: ${e.message}"
+        }
     }
 }
