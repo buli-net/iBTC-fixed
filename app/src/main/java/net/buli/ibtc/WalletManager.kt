@@ -4,7 +4,6 @@ import android.content.Context
 import org.bitcoinj.core.NetworkParameters
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
-import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
 import java.io.File
 
@@ -46,10 +45,5 @@ class WalletManager(private val context: Context) {
         } catch (e: Exception) {
             e.printStackTrace()
         }
-    }
-
-    fun createWallet(): String {
-        val seed = DeterministicSeed(System.currentTimeMillis(), "", "", 0)
-        return seed.mnemonicCode?.joinToString(" ") ?: ""
     }
 }
