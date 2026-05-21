@@ -5,12 +5,14 @@ import android.content.SharedPreferences
 import org.bitcoinj.core.Address
 import org.bitcoinj.core.Coin
 import org.bitcoinj.core.listeners.DownloadProgressTracker
+import org.bitcoinj.crypto.MnemonicCode
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet.SendRequest
+import org.bitcoinj.wallet.Wallet
 import java.io.File
 import java.net.URL
+import java.security.SecureRandom
 import java.util.*
 
 data class WalletInfo(
@@ -83,14 +85,17 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun create(name: String): WalletInfo {
-        val seedObj = DeterministicSeed(System.currentTimeMillis(), null, "", 128)
-        val mnemonic = seedObj.mnemonicCode!!.joinToString(" ")
+        val entropy = ByteArray(16)
+        SecureRandom().nextBytes(entropy)
+        val mnemonic = MnemonicCode.INSTANCE.toMnemonic(entropy)
+        val seedObj = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis() / 1000)
+        val mnemonicStr = seedObj.mnemonicCode!!.joinToString(" ")
         val finalName = if (name.isBlank()) {
             "Ví ${getAll().size + 1}"
         } else {
             name
         }
-        val info = WalletInfo(UUID.randomUUID().toString(), finalName, mnemonic)
+        val info = WalletInfo(UUID.randomUUID().toString(), finalName, mnemonicStr)
         val list = getAll().toMutableList()
         list.add(info)
         saveAll(list)
@@ -176,7 +181,10 @@ class WalletManager(private val ctx: Context) {
         kit = object : WalletAppKit(params, dir, active.id) {
             override fun onSetupCompleted() {
                 if (wallet() != null) {
-                    wallet().allowSpendingUnconfirmedTransactions()
+                    try {
+                        wallet().setAcceptRiskyTransactions(true)
+                    } catch (e: Exception) {
+                    }
                 }
             }
         }
@@ -269,7 +277,7 @@ class WalletManager(private val ctx: Context) {
             }
             val address = Address.fromString(params, to)
             val amount = Coin.valueOf((amountBtc * 100000000).toLong())
-            val req = SendRequest.to(address, amount)
+            val req = Wallet.SendRequest.to(address, amount)
             req.feePerKb = Coin.valueOf(feePerKb * 1000)
             val result = wallet.sendCoins(req)
             val tx = result.tx
