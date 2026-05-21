@@ -1,6 +1,5 @@
 package net.buli.ibtc
 
-import android.graphics.Bitmap
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -28,7 +27,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun App() {
         var address by remember { mutableStateOf("") }
-        var balance by remember { mutableStateOf("...") }
+        var balance by remember { mutableStateOf("0.00000000") }
+        var syncStatus by remember { mutableStateOf("") }
+        var isSyncing by remember { mutableStateOf(false) }
         var showSeed by remember { mutableStateOf<List<String>?>(null) }
         var sendTo by remember { mutableStateOf("") }
         var sendAmount by remember { mutableStateOf("") }
@@ -37,12 +38,11 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             if (WalletManager.hasWallet(this@MainActivity)) {
                 address = WalletManager.getAddress(this@MainActivity)
-                balance = WalletManager.getBalance(address)
             }
         }
 
         Column(Modifier.fillMaxSize().padding(16.dp)) {
-            Text("iBTC Wallet", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("iBTC Wallet - SPV", fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(16.dp))
 
             if (!WalletManager.hasWallet(this@MainActivity)) {
@@ -61,12 +61,23 @@ class MainActivity : ComponentActivity() {
                 
                 Spacer(Modifier.height(8.dp))
                 Text("Số dư: $balance BTC", fontSize = 18.sp)
-                Button(onClick = { scope.launch { balance = WalletManager.getBalance(address) } }) {
-                    Text("Refresh số dư")
-                }
+                if (syncStatus.isNotEmpty()) Text(syncStatus, fontSize = 12.sp)
+                
+                Button(
+                    onClick = {
+                        scope.launch {
+                            isSyncing = true
+                            balance = WalletManager.syncAndGetBalance(this@MainActivity) { status ->
+                                syncStatus = status
+                            }
+                            isSyncing = false
+                        }
+                    },
+                    enabled = !isSyncing,
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isSyncing) "Đang sync..." else "SYNC TỪ MẠNG BTC") }
                 
                 Spacer(Modifier.height(16.dp))
-                // QR Code
                 if (address.isNotEmpty()) {
                     val bitmap = remember(address) {
                         BarcodeEncoder().encodeBitmap(address, BarcodeFormat.QR_CODE, 400, 400)
@@ -85,7 +96,8 @@ class MainActivity : ComponentActivity() {
                             Toast.makeText(this@MainActivity, result, Toast.LENGTH_LONG).show()
                         }
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isSyncing
                 ) { Text("GỬI") }
             }
         }
