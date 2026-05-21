@@ -12,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,10 +32,12 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : ComponentActivity() {
-    // Quản lý ví
+    // Quản lý ví (đã có chống sập API)
     private lateinit var wm: WalletManager
-    // Callback QR
+    
+    // Callback để nhận kết quả quét QR
     private var qrCallback: ((String) -> Unit)? = null
+    
     // Launcher quét QR
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { qrCallback?.invoke(it) }
@@ -43,12 +46,17 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         wm = WalletManager(this)
+        
         setContent {
             MaterialTheme {
+                // State: đã có ví chưa
                 var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
+                // State: giá BTC USD
                 var price by remember { mutableStateOf(0.0) }
+                // State: ID ví đang dùng - dùng để ép UI reload khi đổi ví
                 var activeWalletId by remember { mutableStateOf(wm.getActive()?.id ?: "") }
 
+                // Khởi tạo ví lần đầu
                 LaunchedEffect(hasWallet) {
                     if (hasWallet) {
                         withContext(Dispatchers.IO) {
@@ -60,6 +68,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (!hasWallet) {
+                    // Chưa có ví -> hiện màn hình tạo/import
                     Onboarding(
                         onCreate = { name ->
                             lifecycleScope.launch(Dispatchers.IO) {
@@ -80,6 +89,7 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 } else {
+                    // Đã có ví - hiện 3 tab
                     var tab by remember { mutableStateOf(0) }
                     Scaffold(
                         topBar = {
@@ -92,13 +102,17 @@ class MainActivity : ComponentActivity() {
                     ) { padding ->
                         Box(Modifier.padding(padding)) {
                             if (!wm.isReady()) {
+                                // Đang khởi tạo ví
                                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator()
                                 }
                             } else {
                                 when (tab) {
-                                    0 -> WalletTab(activeWalletId, price)
-                                    1 -> ManageTab { newId -> activeWalletId = newId }
+                                    0 -> WalletTab(activeWalletId, price) { newPrice -> price = newPrice }
+                                    1 -> ManageTab(
+                                        onSwitched = { newId -> activeWalletId = newId },
+                                        onNoWallets = { hasWallet = false } // FIX 1: xóa hết ví thì về onboarding
+                                    )
                                     2 -> SettingsTab()
                                 }
                             }
@@ -109,6 +123,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Màn hình tạo mới / import ví
     @Composable
     fun Onboarding(onCreate: (String) -> Unit, onImport: (String, String) -> Unit) {
         var showCreate by remember { mutableStateOf(false) }
@@ -147,23 +162,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Tab Ví - hiển thị số dư và lịch sử
     @Composable
-    fun WalletTab(activeId: String, price: Double) {
+    fun WalletTab(activeId: String, price: Double, onPriceUpdate: (Double) -> Unit) {
         var balance by remember { mutableStateOf(0.0) }
         var pct by remember { mutableStateOf(0) }
         var txt by remember { mutableStateOf("Chưa sync") }
         var txs by remember { mutableStateOf(listOf<TransactionInfo>()) }
         val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
 
+        // CHẠY LẠI MỖI KHI ĐỔI VÍ
         LaunchedEffect(activeId) {
             wm.onProgress { p, t -> pct = p; txt = t }
             withContext(Dispatchers.IO) {
-                wm.sync()
                 balance = wm.getBalance()
                 txs = wm.getTransactions()
+                onPriceUpdate(wm.price())
             }
         }
 
+        // Auto refresh
         LaunchedEffect(Unit) {
             while (true) {
                 delay(wm.getRefreshSec() * 1000)
@@ -188,7 +206,16 @@ class MainActivity : ComponentActivity() {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { CoroutineScope(Dispatchers.IO).launch { wm.sync(); delay(500); balance = wm.getBalance(); txs = wm.getTransactions() } }, modifier = Modifier.fillMaxWidth()) { Text("SYNC NGAY") }
+            // FIX 2: NÚT SYNC THẬT
+            Button(onClick = {
+                CoroutineScope(Dispatchers.IO).launch {
+                    txt = "Đang sync..."
+                    balance = wm.getBalance()
+                    txs = wm.getTransactions()
+                    onPriceUpdate(wm.price())
+                    txt = "Đã đồng bộ"
+                }
+            }, modifier = Modifier.fillMaxWidth()) { Text("SYNC NGAY") }
             Spacer(Modifier.height(16.dp))
             Text("Lịch sử giao dịch", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Spacer(Modifier.height(8.dp))
@@ -215,8 +242,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Tab Quản lý
     @Composable
-    fun ManageTab(onSwitched: (String) -> Unit) {
+    fun ManageTab(onSwitched: (String) -> Unit, onNoWallets: () -> Unit) {
         val ctx = LocalContext.current
         var wallets by remember { mutableStateOf(wm.getAll()) }
         var to by remember { mutableStateOf("") }
@@ -228,6 +256,7 @@ class MainActivity : ComponentActivity() {
         var detailId by remember { mutableStateOf<String?>(null) }
         var fees by remember { mutableStateOf(FeeRates(5, 10, 20)) }
         var currentAddress by remember { mutableStateOf(wm.getAddress()) }
+        var showSeedDialog by remember { mutableStateOf(false) } // FIX 3
 
         LaunchedEffect(Unit) { withContext(Dispatchers.IO) { fees = wm.getFeeRates() } }
         val feeRate = when (feeSel) { 0 -> fees.slow; 1 -> fees.normal; 2 -> fees.fast; else -> customFee.toLongOrNull() ?: fees.normal }
@@ -261,8 +290,13 @@ class MainActivity : ComponentActivity() {
                                     lifecycleScope.launch(Dispatchers.IO) {
                                         wm.delete(w.id)
                                         wallets = wm.getAll()
-                                        currentAddress = wm.getAddress()
-                                        onSwitched(wm.getActive()?.id ?: "")
+                                        if (wallets.isEmpty()) {
+                                            // FIX 1: hết ví -> về onboarding, không văng app
+                                            withContext(Dispatchers.Main) { onNoWallets() }
+                                        } else {
+                                            currentAddress = wm.getAddress()
+                                            onSwitched(wm.getActive()?.id ?: "")
+                                        }
                                     }
                                 })
                             }
@@ -306,9 +340,33 @@ class MainActivity : ComponentActivity() {
                     Button(onClick = { val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; cm.setPrimaryClip(ClipData.newPlainText("btc", currentAddress)); Toast.makeText(ctx, "Đã copy", Toast.LENGTH_SHORT).show() }) { Text("COPY") }
                 }
                 Divider(modifier = Modifier.padding(vertical = 12.dp))
-                Button(onClick = { Toast.makeText(ctx, wm.getSeed(), Toast.LENGTH_LONG).show() }, modifier = Modifier.fillMaxWidth()) { Text("XUẤT 12 TỪ SEED") }
+                Button(onClick = { showSeedDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("XUẤT 12 TỪ SEED") }
             }
         }
+        
+        // FIX 3: Dialog seed to + QR
+        if (showSeedDialog) {
+            val seed = wm.getSeed()
+            val seedQr = remember(seed) { generateQr(seed) }
+            AlertDialog(
+                onDismissRequest = { showSeedDialog = false },
+                confirmButton = { TextButton(onClick = { showSeedDialog = false }) { Text("Đóng") } },
+                title = { Text("Sao lưu seed") },
+                text = {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                        Image(bitmap = seedQr.asImageBitmap(), contentDescription = null, modifier = Modifier.size(240.dp))
+                        Spacer(Modifier.height(16.dp))
+                        SelectionContainer {
+                            Text(seed, fontSize = 18.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; cm.setPrimaryClip(ClipData.newPlainText("seed", seed)); Toast.makeText(ctx, "Đã copy seed", Toast.LENGTH_SHORT).show() }) { Text("COPY SEED") }
+                        Text("Quét QR này sang máy khác để import", fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+                    }
+                }
+            )
+        }
+        
         renameId?.let { id ->
             var newName by remember { mutableStateOf(wallets.find { it.id == id }?.name ?: "") }
             AlertDialog(onDismissRequest = { renameId = null }, confirmButton = { TextButton(onClick = { wm.rename(id, newName); wallets = wm.getAll(); renameId = null }) { Text("Lưu") } }, title = { Text("Đổi tên ví") }, text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Tên mới") }) })
@@ -338,6 +396,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Hàm tạo QR code
     private fun generateQr(text: String): Bitmap {
         val size = 512
         val bits = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
