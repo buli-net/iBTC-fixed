@@ -11,6 +11,7 @@ import org.bitcoinj.wallet.SendRequest
 import org.bitcoinj.wallet.Wallet
 import java.io.File
 import java.net.URL
+import java.security.SecureRandom
 
 data class WalletInfo(val id: String, var name: String, val seed: String)
 
@@ -21,27 +22,23 @@ class WalletManager(private val ctx: Context) {
     private var wallet: Wallet? = null
     @Volatile private var ready = false
 
-    // ---------- Quản lý nhiều ví ----------
     fun hasWallets(): Boolean = getAll().isNotEmpty()
 
     fun getAll(): List<WalletInfo> {
         val ids = prefs.getStringSet("ids", emptySet()) ?: emptySet()
         return ids.map { id ->
-            WalletInfo(
-                id,
-                prefs.getString("n_$id", "Ví")!!,
-                prefs.getString("s_$id", "")!!
-            )
+            WalletInfo(id, prefs.getString("n_$id", "Ví")!!, prefs.getString("s_$id", "")!!)
         }
     }
 
-    private fun saveIds(ids: Set<String>) {
-        prefs.edit().putStringSet("ids", ids).apply()
-    }
+    private fun saveIds(ids: Set<String>) { prefs.edit().putStringSet("ids", ids).apply() }
 
     fun create(name: String): WalletInfo {
         val id = System.currentTimeMillis().toString()
-        val seed = DeterministicSeed(System.currentTimeMillis(), "", "", System.currentTimeMillis() / 1000)
+        // FIX: tạo seed đúng
+        val entropy = ByteArray(16)
+        SecureRandom().nextBytes(entropy)
+        val seed = DeterministicSeed(entropy, "", System.currentTimeMillis() / 1000)
         val mnemonic = seed.mnemonicCode!!.joinToString(" ")
         val info = WalletInfo(id, name.ifBlank { "Ví mới" }, mnemonic)
         val ids = getAll().map { it.id }.toMutableSet().apply { add(id) }
@@ -61,42 +58,25 @@ class WalletManager(private val ctx: Context) {
             prefs.edit().putString("n_$id", info.name).putString("s_$id", info.seed).apply()
             setActive(id)
             info
-        } catch (e: Exception) {
-            null
-        }
+        } catch (_: Exception) { null }
     }
 
-    fun setActive(id: String) {
-        prefs.edit().putString("active", id).apply()
-    }
-
-    fun getActive(): WalletInfo? {
-        val id = prefs.getString("active", null) ?: return null
-        return getAll().find { it.id == id }
-    }
-
-    fun rename(id: String, newName: String) {
-        prefs.edit().putString("n_$id", newName).apply()
-    }
-
+    fun setActive(id: String) { prefs.edit().putString("active", id).apply() }
+    fun getActive(): WalletInfo? = getAll().find { it.id == prefs.getString("active", null) }
+    fun rename(id: String, newName: String) { prefs.edit().putString("n_$id", newName).apply() }
+    
     fun delete(id: String) {
         try { kit?.stopAsync() } catch (_: Exception) {}
         val ids = getAll().map { it.id }.toMutableSet().apply { remove(id) }
         saveIds(ids)
         prefs.edit().remove("n_$id").remove("s_$id").apply()
         File(ctx.filesDir, "wallets").listFiles()?.filter { it.name.contains(id) }?.forEach { it.delete() }
-        if (prefs.getString("active", null) == id) {
-            ids.firstOrNull()?.let { setActive(it) }
-        }
+        if (prefs.getString("active", null) == id) ids.firstOrNull()?.let { setActive(it) }
         kit = null; wallet = null; ready = false
     }
 
-    fun switchTo(id: String) {
-        setActive(id)
-        init()
-    }
+    fun switchTo(id: String) { setActive(id); init() }
 
-    // ---------- Ví Bitcoin ----------
     fun isReady(): Boolean = ready && wallet != null
 
     fun init() {
@@ -106,9 +86,7 @@ class WalletManager(private val ctx: Context) {
         val dir = File(ctx.filesDir, "wallets").apply { mkdirs() }
         val seed = DeterministicSeed(info.seed.split(" "), null, "", 0)
         kit = object : WalletAppKit(params, dir, "wallet-${info.id}") {
-            override fun onSetupCompleted() {
-                wallet = wallet()
-            }
+            override fun onSetupCompleted() { wallet = wallet() }
         }.apply {
             restoreWalletFromSeed(seed)
             setAutoSave(true)
@@ -132,14 +110,20 @@ class WalletManager(private val ctx: Context) {
         """"price":"([0-9.]+)"""".toRegex().find(json)?.groupValues?.get(1)?.toDouble() ?: 0.0
     } catch (_: Exception) { 0.0 }
 
-    fun send(to: String, amount: Double, feeSatVb: Long): String = try {
-        if (!isReady()) return "Ví chưa sẵn sàng"
-        val req = SendRequest.to(Address.fromString(params, to), Coin.valueOf((amount * 1e8).toLong()))
-        req.feePerKb = Coin.valueOf(feeSatVb * 1000)
-        val res = wallet!!.sendCoins(kit!!.peerGroup(), req)
-        res.broadcastComplete.get()
-        "Đã gửi! TXID: ${res.tx.txId}"
-    } catch (e: Exception) {
-        "Lỗi: ${e.message}"
+    // FIX: dùng block body, không return trong expression
+    fun send(to: String, amount: Double, feeSatVb: Long): String {
+        return try {
+            if (!isReady()) {
+                "Ví chưa sẵn sàng"
+            } else {
+                val req = SendRequest.to(Address.fromString(params, to), Coin.valueOf((amount * 1e8).toLong()))
+                req.feePerKb = Coin.valueOf(feeSatVb * 1000)
+                val res = wallet!!.sendCoins(kit!!.peerGroup(), req)
+                res.broadcastComplete.get()
+                "Đã gửi! TXID: ${res.tx.txId}"
+            }
+        } catch (e: Exception) {
+            "Lỗi: ${e.message}"
+        }
     }
 }
