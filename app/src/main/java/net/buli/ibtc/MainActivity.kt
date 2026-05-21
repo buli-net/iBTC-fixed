@@ -42,7 +42,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         wm = WalletManager(this)
         
-        // FIX KHỞI ĐỘNG: dọn ví hỏng nếu có
         try {
             if (wm.hasWallets() && wm.getActive() == null) {
                 val all = wm.getAll()
@@ -433,4 +432,100 @@ class MainActivity : ComponentActivity() {
                                             }
 
                                             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Image
+                                                Image(bitmap = qr.asImageBitmap(), contentDescription = "QR địa chỉ", modifier = Modifier.size(220.dp))
+                                                Spacer(Modifier.height(8.dp))
+                                                SelectionContainer {
+                                                    Text(text = currentAddress, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                                                }
+                                            }
+
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(
+                                                onClick = {
+                                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    cm.setPrimaryClip(ClipData.newPlainText("btc", currentAddress))
+                                                    Toast.makeText(ctx, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
+                                                },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("COPY ĐỊA CHỈ") }
+
+                                            Spacer(Modifier.height(8.dp))
+                                            Button(
+                                                onClick = { showSeed = true },
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) { Text("XUẤT SEED") }
+                                        }
+                                    }
+
+                                    if (showSeed) {
+                                        val seedText = try { wm.getSeed() } catch (_: Exception) { "" }
+                                        val seedQr = remember(seedText) {
+                                            val size = 400
+                                            val bits = QRCodeWriter().encode(seedText.ifEmpty { "empty" }, BarcodeFormat.QR_CODE, size, size)
+                                            Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply {
+                                                for (x in 0 until size) {
+                                                    for (y in 0 until size) {
+                                                        setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        AlertDialog(
+                                            onDismissRequest = { showSeed = false },
+                                            confirmButton = {
+                                                TextButton(onClick = {
+                                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    cm.setPrimaryClip(ClipData.newPlainText("seed", seedText))
+                                                    Toast.makeText(ctx, "Đã copy seed", Toast.LENGTH_SHORT).show()
+                                                    showSeed = false
+                                                }) { Text("Copy & Đóng") }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { showSeed = false }) { Text("Đóng") }
+                                            },
+                                            title = { Text("Seed - BẢO MẬT") },
+                                            text = {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Image(bitmap = seedQr.asImageBitmap(), contentDescription = "QR Seed", modifier = Modifier.size(220.dp))
+                                                    Spacer(Modifier.height(12.dp))
+                                                    SelectionContainer {
+                                                        Text(text = seedText, fontSize = 16.sp, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                                2 -> {
+                                    var api by remember { mutableStateOf(wm.getFeeApiUrl()) }
+                                    var refresh by remember { mutableStateOf(wm.getRefreshSec().toString()) }
+                                    var custom by remember { mutableStateOf(wm.getDefaultCustomFee().toString()) }
+                                    val ctx = LocalContext.current
+                                    Column(Modifier.fillMaxSize().padding(16.dp)) {
+                                        Text(text = "Tùy chỉnh", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                        Spacer(Modifier.height(16.dp))
+                                        OutlinedTextField(value = api, onValueChange = { api = it }, label = { Text("API phí") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(8.dp))
+                                        OutlinedTextField(value = refresh, onValueChange = { refresh = it }, label = { Text("Thời gian refresh (giây)") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(8.dp))
+                                        OutlinedTextField(value = custom, onValueChange = { custom = it }, label = { Text("Phí tùy chỉnh mặc định") }, modifier = Modifier.fillMaxWidth())
+                                        Spacer(Modifier.height(16.dp))
+                                        Button(
+                                            onClick = {
+                                                wm.setFeeApiUrl(api)
+                                                wm.setRefreshSec(refresh.toLongOrNull() ?: 60)
+                                                wm.setDefaultCustomFee(custom.toLongOrNull() ?: 10)
+                                                Toast.makeText(ctx, "Đã lưu cài đặt", Toast.LENGTH_SHORT).show()
+                                            },
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("LƯU CÀI ĐẶT") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
