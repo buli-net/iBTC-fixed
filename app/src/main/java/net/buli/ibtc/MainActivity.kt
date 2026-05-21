@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
                                         onSwitched = { activeWalletId = it },
                                         onNoWallets = { hasWallet = false }
                                     )
-                                    2 -> SettingsTab()
+                                    2 -> SettingsTab() // ĐÃ FIX: hàm này nằm trong class
                                 }
                             }
                         }
@@ -305,7 +305,8 @@ class MainActivity : ComponentActivity() {
             }
         }
         if (showSeedDialog) {
-            val seed = wm.getSeed(); val seedQr = remember(seed) { generateQr(seed) }
+            val seed = wm.getSeed()
+            val seedQr = remember(seed) { generateQr(seed) }
             AlertDialog(onDismissRequest = { showSeedDialog = false }, confirmButton = { TextButton(onClick = { showSeedDialog = false }) { Text("Đóng") } }, title = { Text("Sao lưu seed") }, text = {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                     Image(bitmap = seedQr.asImageBitmap(), contentDescription = null, modifier = Modifier.size(240.dp))
@@ -316,4 +317,45 @@ class MainActivity : ComponentActivity() {
                 }
             })
         }
-        renameId?.let
+        renameId?.let { id ->
+            var newName by remember { mutableStateOf(wallets.find { it.id == id }?.name ?: "") }
+            AlertDialog(onDismissRequest = { renameId = null }, confirmButton = { TextButton(onClick = { wm.rename(id, newName); wallets = wm.getAll(); renameId = null }) { Text("Lưu") } }, title = { Text("Đổi tên ví") }, text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Tên mới") }) })
+        }
+        detailId?.let { id ->
+            val w = wallets.find { it.id == id }
+            AlertDialog(onDismissRequest = { detailId = null }, confirmButton = { TextButton(onClick = { detailId = null }) { Text("Đóng") } }, title = { Text("Chi tiết ví") }, text = { Text("Tên: ${w?.name}\n\nSeed:\n${w?.seed}") })
+        }
+    }
+
+    @Composable
+    fun SettingsTab() {
+        var apiUrl by remember { mutableStateOf(wm.getFeeApiUrl()) }
+        var refresh by remember { mutableStateOf(wm.getRefreshSec().toString()) }
+        var customFee by remember { mutableStateOf(wm.getDefaultCustomFee().toString()) }
+        val ctx = LocalContext.current
+        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("Tùy chỉnh nâng cao", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(value = apiUrl, onValueChange = { apiUrl = it }, label = { Text("API phí") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = refresh, onValueChange = { refresh = it }, label = { Text("Auto-refresh (giây)") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(value = customFee, onValueChange = { customFee = it }, label = { Text("Phí mặc định") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = { wm.setFeeApiUrl(apiUrl); wm.setRefreshSec(refresh.toLongOrNull() ?: 60); wm.setDefaultCustomFee(customFee.toLongOrNull() ?: 10); Toast.makeText(ctx, "Đã lưu", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("LƯU") }
+        }
+    }
+
+    // Hàm tạo QR - ĐÃ FIX nằm trong class
+    private fun generateQr(text: String): Bitmap {
+        val size = 512
+        val bits = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, size, size)
+        return Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply {
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    setPixel(x, y, if (bits.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE)
+                }
+            }
+        }
+    }
+}
