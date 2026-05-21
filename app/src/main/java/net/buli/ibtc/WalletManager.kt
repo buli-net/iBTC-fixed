@@ -1,251 +1,157 @@
 package net.buli.ibtc
 
 import android.content.Context
-import android.content.SharedPreferences
 import org.bitcoinj.core.Address
 import org.bitcoinj.core.Coin
-import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.script.Script
 import org.bitcoinj.wallet.DeterministicSeed
+import org.bitcoinj.wallet.KeyChainGroup
 import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.Wallet.SendRequest
 import java.io.File
 import java.net.URL
-import java.util.*
+import java.util.Date
 
-data class WalletInfo(
-    val id: String,
-    val name: String,
-    val seed: String
-)
-
-data class TransactionInfo(
-    val txId: String,
-    val amount: Double,
-    val type: String,
-    val time: Date
-)
-
-data class FeeRates(
-    val slow: Long,
-    val normal: Long,
-    val fast: Long
-)
+data class WalletInfo(val id: String, val name: String, val seed: String)
+data class TransactionInfo(val txId: String, val amount: Double, val type: String, val time: Date)
+data class FeeRates(val slow: Int, val normal: Int, val fast: Int)
 
 class WalletManager(private val ctx: Context) {
     private val params = MainNetParams.get()
     private var kit: WalletAppKit? = null
-    private val prefs: SharedPreferences = ctx.getSharedPreferences("ibtc", Context.MODE_PRIVATE)
-    private val walletsKey = "wallets"
-    private val activeKey = "active"
-    private var progressCallback: ((Int, String) -> Unit)? = null
+    private var active: WalletInfo? = null
+    private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
 
-    fun hasWallets(): Boolean {
-        return getAll().isNotEmpty()
-    }
-
-    fun getAll(): List<WalletInfo> {
-        val json = prefs.getString(walletsKey, "[]") ?: "[]"
-        return try {
-            val arr = org.json.JSONArray(json)
-            val list = mutableListOf<WalletInfo>()
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                list.add(
-                    WalletInfo(
-                        o.getString("id"),
-                        o.getString("name"),
-                        o.getString("seed")
-                    )
-                )
-            }
-            list
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun saveAll(list: List<WalletInfo>) {
-        val arr = org.json.JSONArray()
-        for (w in list) {
-            val o = org.json.JSONObject()
-            o.put("id", w.id)
-            o.put("name", w.name)
-            o.put("seed", w.seed)
-            arr.put(o)
-        }
-        prefs.edit().putString(walletsKey, arr.toString()).apply()
-    }
+    fun hasWallets() = prefs.all.isNotEmpty()
 
     fun getActive(): WalletInfo? {
-        val id = prefs.getString(activeKey, null)
-        return if (id == null) {
-            getAll().firstOrNull()
-        } else {
-            getAll().find { it.id == id }
-        }
+        if (active != null) return active
+        val id = prefs.all.keys.firstOrNull() ?: return null
+        val name = prefs.getString("${id}_name", "") ?: ""
+        val seed = prefs.getString("${id}_seed", "") ?: ""
+        active = WalletInfo(id, name, seed)
+        return active
     }
 
     fun create(name: String): WalletInfo {
-        val seed = DeterministicSeed(128, null, "", System.currentTimeMillis() / 1000)
-        val mnemonic = seed.mnemonicCode!!.joinToString(" ")
-        val finalName = if (name.isBlank()) "Ví ${getAll().size + 1}" else name
-        val info = WalletInfo(UUID.randomUUID().toString(), finalName, mnemonic)
-        val list = getAll().toMutableList()
-        list.add(info)
-        saveAll(list)
-        prefs.edit().putString(activeKey, info.id).apply()
+        val id = System.currentTimeMillis().toString()
+        // bitcoinj 0.15: constructor (entropyBits, passphrase, creationTime)
+        val seed = DeterministicSeed(128, "", System.currentTimeMillis() / 1000)
+        val mnemonic = seed.mnemonicCode?.joinToString(" ") ?: ""
+        val info = WalletInfo(id, name.ifBlank { "Ví $id" }, mnemonic)
+        save(info)
+        active = info
         return info
     }
 
-    fun import(name: String, seed: String): WalletInfo? {
+    fun import(name: String, seedPhrase: String): WalletInfo? {
         return try {
-            val words = seed.trim().split("\\s+".toRegex())
+            val words = seedPhrase.trim().split("\\s+".toRegex())
             if (words.size < 12) return null
+            // constructor (List<String>, entropy, passphrase, time)
             DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
-            val finalName = if (name.isBlank()) "Import ${getAll().size + 1}" else name
-            val info = WalletInfo(UUID.randomUUID().toString(), finalName, seed.trim())
-            val list = getAll().toMutableList()
-            list.add(info)
-            saveAll(list)
-            prefs.edit().putString(activeKey, info.id).apply()
+            val id = System.currentTimeMillis().toString()
+            val info = WalletInfo(id, name.ifBlank { "Imported" }, words.joinToString(" "))
+            save(info)
+            active = info
             info
         } catch (e: Exception) {
             null
         }
     }
 
+    private fun save(info: WalletInfo) {
+        prefs.edit()
+            .putString("${info.id}_name", info.name)
+            .putString("${info.id}_seed", info.seed)
+            .apply()
+    }
+
     fun delete(id: String) {
-        saveAll(getAll().filter { it.id != id })
-        if (getActive()?.id == id) {
-            prefs.edit().remove(activeKey).apply()
-        }
-        try {
-            File(ctx.filesDir, "$id.wallet").delete()
-            File(ctx.filesDir, "$id.spvchain").delete()
-        } catch (e: Exception) {
+        prefs.edit().remove("${id}_name").remove("${id}_seed").apply()
+        File(ctx.filesDir, id).deleteRecursively()
+        if (active?.id == id) active = null
+    }
+
+    fun init() {
+        val info = getActive() ?: return
+        val words = info.seed.split(" ")
+        val seed = DeterministicSeed(words, null, "", 0L)
+        kit = object : WalletAppKit(params, Script.ScriptType.P2WPKH,
+            KeyChainGroup.builder(params).fromSeed(seed).build(),
+            File(ctx.filesDir, info.id), "ibtc") {
+            override fun onSetupCompleted() {
+                // fix line 152
+                wallet().setAllowSpendingUnconfirmedTransactions(true)
+            }
+        }.apply {
+            setBlockingStartup(false)
+            startAsync()
+            awaitRunning()
         }
     }
 
     fun stop() {
-        try {
-            kit?.stopAsync()
-            kit?.awaitTerminated()
-        } catch (e: Exception) {
-        }
+        kit?.stopAsync()
+        kit?.awaitTerminated()
         kit = null
     }
 
-    fun isReady(): Boolean {
-        return try {
-            kit != null && kit!!.isRunning
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    fun init() {
-        val active = getActive() ?: return
-        stop()
-        kit = object : WalletAppKit(params, ctx.filesDir, active.id) {
-            override fun onSetupCompleted() {
-                wallet().allowSpendingUnconfirmedTransactions()
-            }
-        }
-        kit!!.setDownloadListener(object : DownloadProgressTracker() {
-            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
-                progressCallback?.invoke(
-                    pct.toInt(),
-                    if (pct < 100) "Đang sync ${pct.toInt()}%" else "Đã đồng bộ"
-                )
-            }
-
-            override fun doneDownload() {
-                progressCallback?.invoke(100, "Đã đồng bộ")
-            }
-        })
-        kit!!.setBlockingStartup(false)
-        kit!!.setAutoSave(true)
-        kit!!.startAsync()
-        kit!!.awaitRunning()
-    }
-
     fun onProgress(cb: (Int, String) -> Unit) {
-        progressCallback = cb
-    }
-
-    fun getBalance(): Double {
-        return try {
-            kit?.wallet()?.balance?.toBtc()?.toDouble() ?: 0.0
-        } catch (e: Exception) {
-            0.0
+        kit?.setDownloadListener { pct, _ ->
+            cb(pct, if (pct < 100) "Đang sync $pct%" else "Đã sync")
         }
     }
 
-    fun getAddress(): String {
-        return try {
-            kit?.wallet()?.currentReceiveAddress().toString()
-        } catch (e: Exception) {
-            ""
-        }
-    }
+    fun getBalance(): Double =
+        kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
 
-    fun getSeed(): String {
-        return getActive()?.seed ?: ""
-    }
+    fun getAddress(): String =
+        kit?.wallet()?.currentReceiveAddress().toString()
+
+    fun getSeed(): String = active?.seed ?: ""
 
     fun getTransactions(): List<TransactionInfo> {
-        return try {
-            kit?.wallet()?.walletTransactions?.map {
-                val tx = it.transaction
-                val v = tx.getValue(kit!!.wallet()).toBtc().toDouble()
-                TransactionInfo(
-                    tx.txId.toString(),
-                    kotlin.math.abs(v),
-                    if (v >= 0) "Nhận" else "Gửi",
-                    tx.updateTime ?: Date()
-                )
-            }?.sortedByDescending { it.time } ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
-        }
+        val w = kit?.wallet() ?: return emptyList()
+        return w.getTransactionsByTime().map { tx ->
+            val v = tx.getValue(w).value.toDouble() / 1e8
+            TransactionInfo(
+                tx.txId.toString(),
+                kotlin.math.abs(v),
+                if (v > 0) "Nhận" else "Gửi",
+                tx.updateTime
+            )
+        }.reversed()
     }
 
-    fun send(to: String, amountBtc: Double, feePerKb: Long): String {
+    fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
         return try {
-            val w = kit?.wallet() ?: return "Lỗi: ví chưa sẵn sàng"
+            val w = kit!!.wallet()
             val addr = Address.fromString(params, to)
-            val amount = Coin.valueOf((amountBtc * 100000000).toLong())
-            val req = Wallet.SendRequest.to(addr, amount)
-            req.feePerKb = Coin.valueOf(feePerKb * 1000)
-            val tx = w.sendCoins(req).tx
-            "Đã gửi: ${tx.txId}"
+            val req = SendRequest.to(addr, Coin.parseCoin(amountBTC.toString()))
+            // fix line 219-220
+            req.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
+            w.completeTx(req)
+            w.commitTx(req.tx)
+            kit!!.peerGroup().broadcastTransaction(req.tx).future().get()
+            req.tx.txId.toString()
         } catch (e: Exception) {
             "Lỗi: ${e.message}"
         }
     }
 
-    fun price(): Double {
-        return try {
-            val text = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").readText()
-            val p = org.json.JSONObject(text).getJSONObject("bitcoin").getDouble("usd")
-            prefs.edit().putFloat("last_price", p.toFloat()).apply()
-            p
-        } catch (e: Exception) {
-            prefs.getFloat("last_price", 65000f).toDouble()
-        }
-    }
+    fun getFeeRates(): FeeRates = try {
+        val txt = URL("https://mempool.space/api/v1/fees/recommended").readText()
+        val slow = Regex("\"hourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 5
+        val normal = Regex("\"halfHourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 10
+        val fast = Regex("\"fastestFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 20
+        FeeRates(slow, normal, fast)
+    } catch (_: Exception) { FeeRates(5, 10, 20) }
 
-    fun getFeeRates(): FeeRates {
-        return try {
-            val j = org.json.JSONObject(URL("https://mempool.space/api/v1/fees/recommended").readText())
-            FeeRates(
-                j.optLong("hourFee", 5),
-                j.optLong("halfHourFee", 10),
-                j.optLong("fastestFee", 20)
-            )
-        } catch (e: Exception) {
-            FeeRates(5, 10, 20)
-        }
-    }
+    fun price(): Double = try {
+        val txt = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").readText()
+        Regex("\"usd\":([\\d.]+)").find(txt)?.groupValues?.get(1)?.toDouble() ?: 0.0
+    } catch (_: Exception) { 0.0 }
 }
