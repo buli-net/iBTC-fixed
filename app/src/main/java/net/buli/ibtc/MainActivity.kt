@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -35,7 +36,6 @@ import java.util.*
 class MainActivity : ComponentActivity() {
     private lateinit var wm: WalletManager
     private var qrCallback: ((String) -> Unit)? = null
-    // Đăng ký launcher quét QR
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { content -> qrCallback?.invoke(content) }
     }
@@ -44,15 +44,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         wm = WalletManager(this)
 
-        // ===== AUTO-SYNC 60 GIÂY CHẠY NỀN =====
-        // Dù app ở foreground, cứ 60s gọi init + lấy giá
         lifecycleScope.launch(Dispatchers.IO) {
             while (true) {
                 delay(60000)
                 try {
                     wm.init()
                     wm.getBalance()
-                    wm.price() // cập nhật tỷ giá chống sập
+                    wm.price()
                 } catch (_: Exception) {}
             }
         }
@@ -60,25 +58,23 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
-                var price by remember { mutableStateOf(0.0) } // giá BTC/USD
+                var price by remember { mutableStateOf(0.0) }
                 var walletName by remember { mutableStateOf(wm.getActive()?.name ?: "") }
                 val context = LocalContext.current
 
-                // Khởi tạo ví khi vào app
                 LaunchedEffect(hasWallet) {
                     if (hasWallet) {
                         withContext(Dispatchers.IO) {
                             try {
                                 wm.init()
                                 walletName = wm.getActive()?.name ?: ""
-                                price = wm.price() // lấy giá lần đầu
+                                price = wm.price()
                             } catch (_: Exception) {}
                         }
                     }
                 }
 
                 if (!hasWallet) {
-                    // ===== MÀN HÌNH CHƯA CÓ VÍ =====
                     var showCreate by remember { mutableStateOf(false) }
                     var showImport by remember { mutableStateOf(false) }
                     Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
@@ -88,7 +84,6 @@ class MainActivity : ComponentActivity() {
                         Spacer(Modifier.height(8.dp))
                         OutlinedButton(onClick = { showImport = true }, Modifier.fillMaxWidth()) { Text("IMPORT SEED") }
                     }
-                    // Dialog tạo ví
                     if (showCreate) {
                         var name by remember { mutableStateOf("") }
                         AlertDialog(
@@ -110,7 +105,6 @@ class MainActivity : ComponentActivity() {
                             text = { OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true) }
                         )
                     }
-                    // Dialog import
                     if (showImport) {
                         var name by remember { mutableStateOf("") }
                         var seed by remember { mutableStateOf("") }
@@ -142,11 +136,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 } else {
-
-
-
-
-                    // ===== MÀN HÌNH CHÍNH =====
                     var tab by remember { mutableStateOf(0) }
                     var showMenu by remember { mutableStateOf(false) }
                     var showRename by remember { mutableStateOf(false) }
@@ -183,7 +172,6 @@ class MainActivity : ComponentActivity() {
                                 }
 
                                 if (tab == 0) {
-                                    // ===== TAB VÍ =====
                                     var balance by remember { mutableStateOf(0.0) }
                                     var progress by remember { mutableStateOf(0) }
                                     var status by remember { mutableStateOf("Chưa sync") }
@@ -192,20 +180,17 @@ class MainActivity : ComponentActivity() {
                                     val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
                                     LaunchedEffect(Unit) {
-                                        // Lắng nghe tiến trình blockchain
                                         wm.onProgress { p, t ->
                                             lifecycleScope.launch(Dispatchers.Main) {
                                                 progress = p
                                                 status = t
                                             }
                                         }
-                                        // Load lần đầu
                                         withContext(Dispatchers.IO) {
                                             balance = wm.getBalance()
                                             price = wm.price()
                                             transactions = wm.getTransactions()
                                         }
-                                        // Vòng lặp cập nhật mỗi phút
                                         while (true) {
                                             delay(60000)
                                             withContext(Dispatchers.IO) {
@@ -228,8 +213,7 @@ class MainActivity : ComponentActivity() {
                                         Card(Modifier.fillMaxWidth()) {
                                             Column(Modifier.padding(16.dp)) {
                                                 Text("Số dư:")
-                                                Text("%.8f BTC".format(balance), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                                                // QUAN TRỌNG: hiển thị giá độc lập, không nhân balance
+                                                Text("%.8f BTC".format(balance), fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                                 Text("≈ $%.2f / BTC".format(price))
                                                 Text("$status • Giá tự động", fontSize = 12.sp)
                                                 if (progress in 1..99) {
@@ -270,11 +254,6 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 } else {
-
-
-
-
-                                    // ===== TAB GỬI/NHẬN =====
                                     var toAddress by remember { mutableStateOf("") }
                                     var amount by remember { mutableStateOf("") }
                                     var result by remember { mutableStateOf("") }
@@ -324,7 +303,6 @@ class MainActivity : ComponentActivity() {
                                             if (result.isNotEmpty()) Text(result, fontSize = 12.sp)
                                             Spacer(Modifier.height(24.dp))
                                             Text("Nhận BTC", fontWeight = FontWeight.Bold)
-                                            // Vẽ QR code từ địa chỉ
                                             val qrBitmap = remember(receiveAddress) {
                                                 val size = 512
                                                 val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size, size)
@@ -348,7 +326,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Dialog đổi tên
                         if (showRename) {
                             var newName by remember { mutableStateOf(walletName) }
                             AlertDialog(
@@ -370,7 +347,6 @@ class MainActivity : ComponentActivity() {
                                 text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true) }
                             )
                         }
-                        // Dialog chi tiết ví
                         if (showDetails) {
                             val seed = wm.getSeed()
                             val address = wm.getAddress()
@@ -405,6 +381,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try { wm.stop() } catch (_: Exception) {} // dừng blockchain khi thoát
+        try { wm.stop() } catch (_: Exception) {}
     }
 }
