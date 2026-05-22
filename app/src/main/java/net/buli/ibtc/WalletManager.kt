@@ -28,6 +28,7 @@ class WalletManager(private val ctx: Context) {
     private var kit: WalletAppKit? = null
     private var active: WalletInfo? = null
     private var cachedSeed: String? = null // chỉ giữ khi mở khóa
+    private var cachedPassword: CharArray? = null // để mã hóa wallet
     private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
     private var lastPrice = prefs.getFloat("last_price", 67500f).toDouble()
 
@@ -36,7 +37,9 @@ class WalletManager(private val ctx: Context) {
         return prefs.all.keys.any { key -> key.endsWith("_seed") }
     }
 
-    fun getActive(): WalletInfo? = active
+    fun getActive(): WalletInfo? {
+        return active
+    }
 
     fun getActiveId(): String? {
         return prefs.all.keys.mapNotNull { key ->
@@ -52,6 +55,7 @@ class WalletManager(private val ctx: Context) {
             val seed = CryptoUtil.decrypt(enc, password)
             val name = prefs.getString("${id}_name", "") ?: ""
             cachedSeed = seed
+            cachedPassword = password.toCharArray()
             active = WalletInfo(id, name)
             prefs.edit().putInt("${id}_attempts", 0).apply()
             true
@@ -62,11 +66,29 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
-    // Khóa ví - xóa seed khỏi RAM
+    // Khóa ví - xóa seed và password khỏi RAM, xóa file wallet
     fun lock() {
+        try {
+            kit?.wallet()?.let { wallet ->
+                if (!wallet.isEncrypted && cachedPassword != null) {
+                    wallet.encrypt(cachedPassword!!.concatToString())
+                }
+            }
+        } catch (_: Exception) {}
+        
+        cachedPassword?.fill('0')
+        cachedPassword = null
         cachedSeed = null
+        val id = active?.id
         active = null
         stop()
+        
+        // Xóa file wallet để không còn key plaintext trên đĩa
+        id?.let {
+            try {
+                File(ctx.filesDir, it).deleteRecursively()
+            } catch (_: Exception) {}
+        }
     }
 
     // ĐỔI MẬT KHẨU
@@ -76,7 +98,10 @@ class WalletManager(private val ctx: Context) {
             val seed = CryptoUtil.decrypt(enc, oldPass)
             val newEnc = CryptoUtil.encrypt(seed, newPass)
             prefs.edit().putString("${id}_seed", newEnc).apply()
-            if (active?.id == id) cachedSeed = seed
+            if (active?.id == id) {
+                cachedSeed = seed
+                cachedPassword = newPass.toCharArray()
+            }
             true
         } catch (e: Exception) {
             false
@@ -103,6 +128,7 @@ class WalletManager(private val ctx: Context) {
         val enc = CryptoUtil.encrypt(mnemonic, password)
         prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
         cachedSeed = mnemonic
+        cachedPassword = password.toCharArray()
         active = info
         return info
     }
@@ -119,6 +145,7 @@ class WalletManager(private val ctx: Context) {
             val enc = CryptoUtil.encrypt(clean, password)
             prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
             cachedSeed = clean
+            cachedPassword = password.toCharArray()
             active = info
             info
         } catch (e: Exception) {
@@ -148,6 +175,13 @@ class WalletManager(private val ctx: Context) {
             startAsync()
             awaitRunning()
         }
+        // Mã hóa wallet ngay sau khi tạo
+        try {
+            val wallet = kit?.wallet()
+            if (wallet != null && !wallet.isEncrypted && cachedPassword != null) {
+                wallet.encrypt(cachedPassword!!.concatToString())
+            }
+        } catch (_: Exception) {}
     }
 
     fun stop() {
@@ -195,12 +229,22 @@ class WalletManager(private val ctx: Context) {
     fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
         return try {
             val wallet = kit!!.wallet()
+            val pwd = cachedPassword?.concatToString() ?: return "Lỗi: Chưa mở khóa"
+            // Giải mã tạm thời để ký
+            if (wallet.isEncrypted) {
+                wallet.decrypt(pwd)
+            }
             val request = SendRequest.to(Address.fromString(params, to), Coin.parseCoin(amountBTC.toString()))
             request.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
             wallet.completeTx(request)
             wallet.commitTx(request.tx)
             kit!!.peerGroup().broadcastTransaction(request.tx).future().get()
-            request.tx.txId.toString()
+            val txId = request.tx.txId.toString()
+            // Mã hóa lại ngay
+            if (!wallet.isEncrypted) {
+                wallet.encrypt(pwd)
+            }
+            txId
         } catch (e: Exception) {
             "Lỗi: ${e.message}"
         }
