@@ -320,8 +320,8 @@ class MainActivity : ComponentActivity() {
                                                     fontSize = 28.sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
-                                                Text("≈ $%.2f".format(balance * price))
-                                                Text(status, fontSize = 12.sp)
+                                                Text("≈ $%.2f / BTC".format(price))
+                                                Text("$status • Giá tự động", fontSize = 12.sp)
                                                 if (progress in 1..99) {
                                                     LinearProgressIndicator(
                                                         progress = progress / 100f,
