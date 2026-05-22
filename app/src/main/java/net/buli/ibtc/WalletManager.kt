@@ -8,14 +8,16 @@ import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.SendRequest
+import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.SecureRandom
 import java.util.Date
+import java.util.UUID
 
-// Lưu thông tin ví
-data class WalletInfo(val id: String, val name: String, val seed: String)
+// Lưu thông tin ví (KHÔNG lưu seed)
+data class WalletInfo(val id: String, val name: String)
 // Lưu giao dịch
 data class TransactionInfo(val txId: String, val amount: Double, val type: String, val time: Date)
 // Phí mạng
@@ -25,6 +27,7 @@ class WalletManager(private val ctx: Context) {
     private val params = MainNetParams.get() // Bitcoin mainnet
     private var kit: WalletAppKit? = null
     private var active: WalletInfo? = null
+    private var cachedSeed: String? = null // chỉ giữ khi mở khóa
     private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
     private var lastPrice = prefs.getFloat("last_price", 67500f).toDouble()
 
@@ -33,9 +36,7 @@ class WalletManager(private val ctx: Context) {
         return prefs.all.keys.any { key -> key.endsWith("_seed") }
     }
 
-    fun getActive(): WalletInfo? {
-        return active
-    }
+    fun getActive(): WalletInfo? = active
 
     fun getActiveId(): String? {
         return prefs.all.keys.mapNotNull { key ->
@@ -43,34 +44,46 @@ class WalletManager(private val ctx: Context) {
         }.firstOrNull()
     }
 
-    // Mở khóa ví
+    // Mở khóa ví - giới hạn 5 lần sai
     fun unlock(id: String, password: String): Boolean {
+        if (prefs.getInt("${id}_attempts", 0) >= 5) return false
         return try {
             val enc = prefs.getString("${id}_seed", "") ?: return false
             val seed = CryptoUtil.decrypt(enc, password)
             val name = prefs.getString("${id}_name", "") ?: ""
-            active = WalletInfo(id, name, seed)
+            cachedSeed = seed
+            active = WalletInfo(id, name)
+            prefs.edit().putInt("${id}_attempts", 0).apply()
             true
         } catch (e: Exception) {
+            val attempts = prefs.getInt("${id}_attempts", 0) + 1
+            prefs.edit().putInt("${id}_attempts", attempts).apply()
             false
         }
     }
 
-    // ĐỔI MẬT KHẨU - dùng cho menu
+    // Khóa ví - xóa seed khỏi RAM
+    fun lock() {
+        cachedSeed = null
+        active = null
+        stop()
+    }
+
+    // ĐỔI MẬT KHẨU
     fun changePassword(id: String, oldPass: String, newPass: String): Boolean {
         return try {
             val enc = prefs.getString("${id}_seed", "") ?: return false
-            val seed = CryptoUtil.decrypt(enc, oldPass) // kiểm tra pass cũ
-            val newEnc = CryptoUtil.encrypt(seed, newPass) // mã hóa lại
+            val seed = CryptoUtil.decrypt(enc, oldPass)
+            val newEnc = CryptoUtil.encrypt(seed, newPass)
             prefs.edit().putString("${id}_seed", newEnc).apply()
-            active?.let { if (it.id == id) active = it.copy(seed = seed) }
+            if (active?.id == id) cachedSeed = seed
             true
         } catch (e: Exception) {
             false
         }
     }
 
-    // ĐỔI TÊN - fix không reset pass
+    // ĐỔI TÊN - không reset pass
     fun rename(id: String, newName: String): Boolean {
         return try {
             prefs.edit().putString("${id}_name", newName).apply()
@@ -81,28 +94,31 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
-    // Tạo ví mới
+    // Tạo ví mới - dùng UUID tránh trùng
     fun create(name: String, password: String): WalletInfo {
-        val id = System.currentTimeMillis().toString()
+        val id = UUID.randomUUID().toString()
         val seed = DeterministicSeed(SecureRandom(), 128, "")
         val mnemonic = seed.mnemonicCode!!.joinToString(" ")
-        val info = WalletInfo(id, if (name.isBlank()) "Ví $id" else name, mnemonic)
+        val info = WalletInfo(id, if (name.isBlank()) "Ví $id" else name)
         val enc = CryptoUtil.encrypt(mnemonic, password)
         prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
+        cachedSeed = mnemonic
         active = info
         return info
     }
 
-    // Import ví
+    // Import ví - chuẩn hóa seed
     fun import(name: String, phrase: String, password: String): WalletInfo? {
         return try {
-            val words = phrase.trim().split("\\s+".toRegex())
+            val clean = phrase.trim().lowercase().replace(Regex("\\s+"), " ")
+            val words = clean.split(" ")
             if (words.size < 12) return null
             DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
-            val id = System.currentTimeMillis().toString()
-            val info = WalletInfo(id, if (name.isBlank()) "Imported" else name, words.joinToString(" "))
-            val enc = CryptoUtil.encrypt(info.seed, password)
+            val id = UUID.randomUUID().toString()
+            val info = WalletInfo(id, if (name.isBlank()) "Imported" else name)
+            val enc = CryptoUtil.encrypt(clean, password)
             prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
+            cachedSeed = clean
             active = info
             info
         } catch (e: Exception) {
@@ -110,26 +126,21 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
-    // XÓA VÍ - FIX VÍ MA DÙNG commit()
+    // XÓA VÍ
     fun delete(id: String) {
-        try {
-            stop()
-        } catch (_: Exception) {}
-        // commit() ghi ngay, tránh ví quay lại khi thoát app
-        prefs.edit().remove("${id}_name").remove("${id}_seed").commit()
+        lock()
+        prefs.edit().remove("${id}_name").remove("${id}_seed").remove("${id}_attempts").commit()
         try {
             File(ctx.filesDir, id).deleteRecursively()
         } catch (_: Exception) {}
-        if (active?.id == id) {
-            active = null
-        }
     }
 
     // Khởi tạo sync
     fun init() {
-        val info = getActive() ?: return
+        val info = active ?: return
+        val seedStr = cachedSeed ?: return
         if (kit != null) return
-        val seed = DeterministicSeed(info.seed.split(" "), null, "", 0L)
+        val seed = DeterministicSeed(seedStr.split(" "), null, "", 0L)
         kit = WalletAppKit(params, File(ctx.filesDir, info.id), "ibtc").apply {
             setBlockingStartup(false)
             restoreWalletFromSeed(seed)
@@ -164,11 +175,11 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun getAddress(): String {
-        return kit?.wallet()?.currentReceiveAddress().toString()
+        return kit?.wallet()?.currentReceiveAddress()?.toString() ?: ""
     }
 
     fun getSeed(): String {
-        return active?.seed ?: ""
+        return cachedSeed ?: ""
     }
 
     fun getTransactions(): List<TransactionInfo> {
@@ -219,30 +230,40 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
+    private fun updatePrice(price: Double): Double {
+        if (price != lastPrice) {
+            lastPrice = price
+            prefs.edit().putFloat("last_price", price.toFloat()).apply()
+        }
+        return price
+    }
+
     fun price(): Double {
-        var text = httpGet("https://api.coinbase.com/v2/prices/BTC-USD/spot")
-        var price = Regex("\"amount\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
-        if (price == null) {
-            text = httpGet("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
-            price = Regex("\"price\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
-        }
-        if (price == null) {
-            text = httpGet("https://blockchain.info/ticker")
-            price = Regex("\"USD\"[^}]*\"last\":([\\d.]+)").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
-        }
-        val result = price ?: lastPrice
-        if (result != lastPrice) {
-            lastPrice = result
-            prefs.edit().putFloat("last_price", result.toFloat()).apply()
-        }
-        return result
+        try {
+            val text = httpGet("https://api.coinbase.com/v2/prices/BTC-USD/spot")
+            val amount = JSONObject(text).getJSONObject("data").getString("amount").toDoubleOrNull()
+            if (amount != null) return updatePrice(amount)
+        } catch (_: Exception) {}
+        try {
+            val text = httpGet("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+            val price = JSONObject(text).getString("price").toDoubleOrNull()
+            if (price != null) return updatePrice(price)
+        } catch (_: Exception) {}
+        try {
+            val text = httpGet("https://blockchain.info/ticker")
+            val price = JSONObject(text).getJSONObject("USD").getDouble("last")
+            return updatePrice(price)
+        } catch (_: Exception) {}
+        return lastPrice
     }
 
     fun getFeeRates(): FeeRates {
-        val text = httpGet("https://mempool.space/api/v1/fees/recommended")
-        val slow = Regex("\"hourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 5
-        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 10
-        val fast = Regex("\"fastestFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 20
-        return FeeRates(slow, normal, fast)
+        return try {
+            val text = httpGet("https://mempool.space/api/v1/fees/recommended")
+            val json = JSONObject(text)
+            FeeRates(json.getInt("hourFee"), json.getInt("halfHourFee"), json.getInt("fastestFee"))
+        } catch (_: Exception) {
+            FeeRates(5, 10, 20)
+        }
     }
 }
