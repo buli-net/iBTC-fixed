@@ -25,9 +25,11 @@ import android.content.SharedPreferences
 import android.util.Log
 import org.bitcoinj.core.*
 import org.bitcoinj.crypto.DeterministicKey
+import org.bitcoinj.crypto.MnemonicCode
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.Wallet.SendRequest
 import org.bitcoinj.store.SPVBlockStore
 import org.bitcoinj.net.discovery.DnsDiscovery
 import org.bitcoinj.core.listeners.DownloadProgressTracker
@@ -186,7 +188,8 @@ class WalletManager(private val context: Context) {
             peerGroup?.addPeerDiscovery(DnsDiscovery(params))
 
             // Bước 5: Set listener để theo dõi tiến trình
-            peerGroup?.addDownloadProgressListener(object : DownloadProgressTracker() {
+            // FIX: dùng setDownloadProgressTracker thay cho setDownloadListener
+            peerGroup?.setDownloadProgressTracker(object : DownloadProgressTracker() {
                 override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
                     val msg = "Sync $blocksSoFar blocks (${pct.toInt()}%)"
                     Log.d(TAG, msg)
@@ -282,18 +285,22 @@ class WalletManager(private val context: Context) {
         Log.i(TAG, "Tạo ví mới: $name")
 
         try {
-            // Tạo seed 128-bit = 12 từ
-            val seed = DeterministicSeed(SecureRandom(), 128, "", Utils.currentTimeSeconds())
+            // FIX: Tạo seed đúng constructor cho version này
+            val entropy = ByteArray(16)
+            SecureRandom().nextBytes(entropy)
+            val mnemonicList = MnemonicCode.INSTANCE.toMnemonic(entropy)
+            val seed = DeterministicSeed(mnemonicList, null, "", Utils.currentTimeSeconds())
+
             val id = UUID.randomUUID().toString()
-            val mnemonic = seed.mnemonicCode!!.joinToString(" ")
+            val mnemonic = mnemonicList.joinToString(" ")
 
             Log.d(TAG, "Seed tạo: $mnemonic")
 
             // Lưu vào SharedPreferences (thực tế nên mã hóa AES)
             prefs.edit()
-             .putString(id, "$name|$mnemonic|$password")
-             .putString("active", id)
-             .apply()
+            .putString(id, "$name|$mnemonic|$password")
+            .putString("active", id)
+            .apply()
 
             // Tạo wallet file bitcoinj
             val wallet = Wallet.fromSeed(params, seed)
@@ -320,15 +327,16 @@ class WalletManager(private val context: Context) {
         Log.i(TAG, "Import ví: $name")
 
         return try {
-            // Validate mnemonic
-            val seed = DeterministicSeed(mnemonic.trim().split(" "), null, "", Utils.currentTimeSeconds())
+            // FIX: dùng constructor List<String>
+            val words = mnemonic.trim().split("\\s+".toRegex())
+            val seed = DeterministicSeed(words, null, "", Utils.currentTimeSeconds())
             val id = UUID.randomUUID().toString()
 
             // Lưu
             prefs.edit()
-             .putString(id, "$name|$mnemonic|$password")
-             .putString("active", id)
-             .apply()
+            .putString(id, "$name|$mnemonic|$password")
+            .putString("active", id)
+            .apply()
 
             // Tạo wallet file
             val wallet = Wallet.fromSeed(params, seed)
@@ -423,6 +431,7 @@ class WalletManager(private val context: Context) {
     fun getTransactions(): List<TransactionInfo> {
         val w = wallet?: return emptyList()
 
+        // FIX: dùng getTransactions thay vì field protected
         return w.getTransactions(false).map { tx ->
             val value = tx.getValue(w).value
             val type = if (value > 0) "Nhận" else "Gửi"
@@ -437,7 +446,7 @@ class WalletManager(private val context: Context) {
     }
 
     /**
-     * Gửi BTC (ví nóng)
+     * Gửi BTC (ví nóng) - PHÍ TÙY CHỈNH REAL
      *
      * @param toAddress Địa chỉ nhận
      * @param amountBtc Số BTC
@@ -451,7 +460,7 @@ class WalletManager(private val context: Context) {
         return try {
             val to = Address.fromString(params, toAddress)
             val amount = Coin.valueOf((amountBtc * 1e8).toLong())
-            val req = Wallet.SendRequest.to(to, amount)
+            val req = SendRequest.to(to, amount)
             req.feePerKb = Coin.valueOf(feeRate * 1000L)
 
             val result = w.sendCoins(peerGroup, req)
@@ -569,6 +578,7 @@ class WalletManager(private val context: Context) {
         val cold = getColdWallets().firstOrNull { it.name == walletName }?: return ""
 
         return try {
+            // FIX: bỏ tham số null
             val key = DeterministicKey.deserializeB58(cold.xpub, params)
             val watchWallet = Wallet.fromWatchingKey(params, key)
             val address = watchWallet.currentReceiveAddress().toString()
@@ -595,12 +605,14 @@ class WalletManager(private val context: Context) {
             val key = DeterministicKey.deserializeB58(cold.xpub, params)
             val watchWallet = Wallet.fromWatchingKey(params, key)
 
-            // Thêm vào peerGroup để sync
+            // FIX: bỏ wallets.contains (private)
             try {
                 if (peerGroup!= null) {
                     Log.d(TAG, "Thêm watch wallet vào peerGroup")
                     peerGroup!!.addWallet(watchWallet)
                     peerGroup!!.downloadBlockChain()
+
+                    // Đợi 3 giây để sync
                     Thread.sleep(3000)
                 }
             } catch (_: Exception) {}
@@ -650,7 +662,7 @@ class WalletManager(private val context: Context) {
             val amount = Coin.valueOf((amountBtc * 1e8).toLong())
             val feePerKb = Coin.valueOf(feeRateSatVb * 1000L)
 
-            val req = Wallet.SendRequest.to(to, amount)
+            val req = SendRequest.to(to, amount)
             req.feePerKb = feePerKb
             req.shuffleOutputs = false
 
