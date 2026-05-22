@@ -159,8 +159,17 @@ class MainActivity : ComponentActivity() {
                                     val formatter = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
 
                                     LaunchedEffect(Unit) {
-                                        wm.onProgress { p, t -> progress = p; status = t }
-                                        withContext(Dispatchers.IO) { balance = wm.getBalance(); txs = wm.getTransactions(); price = wm.price() }
+                                        withContext(Dispatchers.IO) { price = wm.price() }
+                                        wm.onProgress { p, t ->
+                                            progress = p; status = t
+                                            if (p == 100) {
+                                                CoroutineScope(Dispatchers.IO).launch {
+                                                    balance = wm.getBalance()
+                                                    txs = wm.getTransactions()
+                                                    price = wm.price()
+                                                }
+                                            }
+                                        }
                                     }
 
                                     Column(Modifier.padding(16.dp)) {
@@ -174,7 +183,13 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                         Spacer(Modifier.height(8.dp))
-                                        Button(onClick = { CoroutineScope(Dispatchers.IO).launch { balance = wm.getBalance(); txs = wm.getTransactions(); price = wm.price() } }, Modifier.fillMaxWidth()) { Text("SYNC") }
+                                        Button(onClick = {
+                                            CoroutineScope(Dispatchers.IO).launch {
+                                                price = wm.price()
+                                                balance = wm.getBalance()
+                                                txs = wm.getTransactions()
+                                            }
+                                        }, Modifier.fillMaxWidth()) { Text("SYNC") }
                                         Spacer(Modifier.height(16.dp))
                                         Text("Lịch sử", fontWeight = FontWeight.Bold)
                                         LazyColumn(Modifier.fillMaxSize()) {
@@ -221,9 +236,8 @@ class MainActivity : ComponentActivity() {
                                             Spacer(Modifier.height(24.dp))
                                             Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                             val qr = remember(address) {
-                                                val s = 512; val b = QRCodeWriter().encode(address.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, s, s)
+                                                val s = 512; val b = QRCodeWriter().encode(address.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, s)
                                                 Bitmap.createBitmap(s, s, Bitmap.Config.RGB_565).apply { for (x in 0 until s) for (y in 0 until s) setPixel(x, y, if (b.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) }
-                                            }
                                             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Image(qr.asImageBitmap(), null, Modifier.size(220.dp)); Spacer(Modifier.height(8.dp)); SelectionContainer { Text(address) }
                                             }
