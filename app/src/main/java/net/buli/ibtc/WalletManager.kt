@@ -23,40 +23,49 @@ class WalletManager(private val ctx: Context) {
     private var active: WalletInfo? = null
     private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
 
-    fun hasWallets() = prefs.all.isNotEmpty()
+    fun hasWallets(): Boolean {
+        return prefs.all.isNotEmpty()
+    }
 
     fun getActive(): WalletInfo? {
         if (active != null) return active
         val id = prefs.all.keys.firstOrNull() ?: return null
-        active = WalletInfo(id, prefs.getString("${id}_name","")!!, prefs.getString("${id}_seed","")!!)
+        val name = prefs.getString("${id}_name", "") ?: ""
+        val seed = prefs.getString("${id}_seed", "") ?: ""
+        active = WalletInfo(id, name, seed)
         return active
     }
 
     fun create(name: String): WalletInfo {
         val id = System.currentTimeMillis().toString()
         val seed = DeterministicSeed(SecureRandom(), 128, "")
-        val info = WalletInfo(id, name.ifBlank{"Ví $id"}, seed.mnemonicCode!!.joinToString(" "))
-        prefs.edit().putString("${id}_name",info.name).putString("${id}_seed",info.seed).apply()
+        val mnemonic = seed.mnemonicCode!!.joinToString(" ")
+        val info = WalletInfo(id, if (name.isBlank()) "Ví $id" else name, mnemonic)
+        prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
         active = info
         return info
     }
 
-    fun import(name: String, phrase: String): WalletInfo? = try {
-        val words = phrase.trim().split("\\s+".toRegex())
-        if (words.size < 12) null else {
-            DeterministicSeed(words, null, "", System.currentTimeMillis()/1000)
+    fun import(name: String, phrase: String): WalletInfo? {
+        return try {
+            val words = phrase.trim().split("\\s+".toRegex())
+            if (words.size < 12) return null
+            DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
             val id = System.currentTimeMillis().toString()
-            val info = WalletInfo(id, name.ifBlank{"Imported"}, words.joinToString(" "))
-            prefs.edit().putString("${id}_name",info.name).putString("${id}_seed",info.seed).apply()
+            val info = WalletInfo(id, if (name.isBlank()) "Imported" else name, words.joinToString(" "))
+            prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
             active = info
             info
+        } catch (e: Exception) {
+            null
         }
-    } catch (_:Exception){ null }
+    }
 
-    fun delete(id: String){
+    fun delete(id: String) {
         prefs.edit().remove("${id}_name").remove("${id}_seed").apply()
-        File(ctx.filesDir,id).deleteRecursively()
-        if(active?.id==id) active=null
+        val dir = File(ctx.filesDir, id)
+        dir.deleteRecursively()
+        if (active?.id == id) active = null
     }
 
     fun init() {
@@ -64,53 +73,85 @@ class WalletManager(private val ctx: Context) {
         val seed = DeterministicSeed(info.seed.split(" "), null, "", 0L)
         kit = WalletAppKit(params, File(ctx.filesDir, info.id), "ibtc").apply {
             setBlockingStartup(false)
-            // FIX: gắn listener trước khi start để nhận progress
-            setDownloadListener(object: DownloadProgressTracker(){})
+            setDownloadListener(object : DownloadProgressTracker() {})
             restoreWalletFromSeed(seed)
             startAsync()
             awaitRunning()
         }
     }
 
-    fun stop(){ kit?.stopAsync(); kit?.awaitTerminated(); kit=null }
+    fun stop() {
+        try {
+            kit?.stopAsync()
+            kit?.awaitTerminated()
+        } catch (_: Exception) {}
+        kit = null
+    }
 
-    fun onProgress(cb:(Int,String)->Unit){
+    fun onProgress(cb: (Int, String) -> Unit) {
         kit?.setDownloadListener(object : DownloadProgressTracker() {
             override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
-                cb(pct.toInt(), if(pct<100) "Đang sync ${pct.toInt()}%" else "Đã sync")
+                cb(pct.toInt(), if (pct < 100) "Đang sync ${pct.toInt()}%" else "Đã sync")
             }
-            override fun doneDownload() { cb(100, "Đã sync") }
+            override fun doneDownload() {
+                cb(100, "Đã sync")
+            }
         })
     }
 
-    fun getBalance() = kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
-    fun getAddress() = kit?.wallet()?.currentReceiveAddress().toString()
-    fun getSeed() = active?.seed ?: ""
-    fun getTransactions() = kit?.wallet()?.getTransactionsByTime()?.map{ tx->
-        val v = tx.getValue(kit!!.wallet()).value.toDouble()/1e8
-        TransactionInfo(tx.txId.toString(), kotlin.math.abs(v), if(v>0)"Nhận" else "Gửi", tx.updateTime)
-    }?.reversed() ?: emptyList()
+    fun getBalance(): Double {
+        return kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
+    }
 
-    fun send(to:String, amountBTC:Double, feeRateSatVb:Int):String = try {
-        val w = kit!!.wallet()
-        val req = SendRequest.to(Address.fromString(params,to), Coin.parseCoin(amountBTC.toString()))
-        req.allowUnconfirmed()
-        req.feePerKb = Coin.valueOf(feeRateSatVb.toLong()*1000)
-        w.completeTx(req); w.commitTx(req.tx)
-        kit!!.peerGroup().broadcastTransaction(req.tx).future().get()
-        req.tx.txId.toString()
-    } catch(e:Exception){ "Lỗi: ${e.message}" }
+    fun getAddress(): String {
+        return kit?.wallet()?.currentReceiveAddress().toString()
+    }
 
-    fun getFeeRates() = try {
-        val txt = URL("https://mempool.space/api/v1/fees/recommended").readText()
-        FeeRates(
-            Regex("\"hourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:5,
-            Regex("\"halfHourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:10,
-            Regex("\"fastestFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:20
-        )
-    } catch(_:Exception){ FeeRates(5,10,20) }
+    fun getSeed(): String {
+        return active?.seed ?: ""
+    }
 
-    fun price() = try {
-        Regex("\"usd\":([\\d.]+)").find(URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").readText())?.groupValues?.get(1)?.toDouble()?:0.0
-    } catch(_:Exception){0.0}
+    fun getTransactions(): List<TransactionInfo> {
+        val w = kit?.wallet() ?: return emptyList()
+        return w.getTransactionsByTime().map { tx ->
+            val v = tx.getValue(w).value.toDouble() / 1e8
+            TransactionInfo(tx.txId.toString(), kotlin.math.abs(v), if (v > 0) "Nhận" else "Gửi", tx.updateTime)
+        }.reversed()
+    }
+
+    fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
+        return try {
+            val w = kit!!.wallet()
+            val req = SendRequest.to(Address.fromString(params, to), Coin.parseCoin(amountBTC.toString()))
+            req.allowUnconfirmed()
+            req.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
+            w.completeTx(req)
+            w.commitTx(req.tx)
+            kit!!.peerGroup().broadcastTransaction(req.tx).future().get()
+            req.tx.txId.toString()
+        } catch (e: Exception) {
+            "Lỗi: ${e.message}"
+        }
+    }
+
+    fun getFeeRates(): FeeRates {
+        return try {
+            val txt = URL("https://mempool.space/api/v1/fees/recommended").readText()
+            val slow = Regex("\"hourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 5
+            val normal = Regex("\"halfHourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 10
+            val fast = Regex("\"fastestFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt() ?: 20
+            FeeRates(slow, normal, fast)
+        } catch (_: Exception) {
+            FeeRates(5, 10, 20)
+        }
+    }
+
+    fun price(): Double {
+        return try {
+            val txt = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").readText()
+            Regex("\"usd\":([\\d.]+)").find(txt)?.groupValues?.get(1)?.toDouble() ?: 0.0
+        } catch (_: Exception) {
+            0.0
+        }
+    }
 }
