@@ -196,4 +196,8 @@ class WalletManager(private val ctx: Context) {
     fun getFeeRates(): FeeRates {
         val text = httpGet("https://mempool.space/api/v1/fees/recommended")
         val slow = Regex("\"hourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 5
-        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.
+        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 10
+        val fast = Regex("\"fastestFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 20
+        return FeeRates(slow, normal, fast)
+    }
+}
