@@ -70,6 +70,17 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
+    // ĐỔI TÊN - fix không reset pass
+    fun rename(id: String, newName: String): Boolean {
+        return try {
+            prefs.edit().putString("${id}_name", newName).apply()
+            if (active?.id == id) active = active?.copy(name = newName)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     // Tạo ví mới
     fun create(name: String, password: String): WalletInfo {
         val id = System.currentTimeMillis().toString()
@@ -164,7 +175,9 @@ class WalletManager(private val ctx: Context) {
         val wallet = kit?.wallet() ?: return emptyList()
         return wallet.getTransactionsByTime().map { tx ->
             val value = tx.getValue(wallet).value.toDouble() / 1e8
-            TransactionInfo(tx.txId.toString(), kotlin.math.abs(value), if (value > 0) "Nhận" else "Gửi", tx.updateTime)
+            val fee = tx.fee?.value?.toDouble()?.div(1e8) ?: 0.0
+            val amount = if (value < 0) kotlin.math.abs(value) - fee else value
+            TransactionInfo(tx.txId.toString(), amount, if (value > 0) "Nhận" else "Gửi", tx.updateTime)
         }.reversed()
     }
 
@@ -176,7 +189,7 @@ class WalletManager(private val ctx: Context) {
             wallet.completeTx(request)
             wallet.commitTx(request.tx)
             kit!!.peerGroup().broadcastTransaction(request.tx).future().get()
-            request.tx.txId.toString()
+            request.txId.toString()
         } catch (e: Exception) {
             "Lỗi: ${e.message}"
         }
