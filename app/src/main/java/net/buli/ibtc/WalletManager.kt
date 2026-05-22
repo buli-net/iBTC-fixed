@@ -34,39 +34,56 @@ class WalletManager(private val ctx: Context) {
 
     // Lấy ví đang dùng
     fun getActive(): WalletInfo? {
-        if (active != null) return active
-        val id = prefs.all.keys.mapNotNull { key ->
-            if (key.endsWith("_seed")) key.removeSuffix("_seed") else null
-        }.firstOrNull() ?: return null
-        val name = prefs.getString("${id}_name", "") ?: ""
-        val seed = prefs.getString("${id}_seed", "") ?: ""
-        active = WalletInfo(id, name, seed)
         return active
     }
 
-    // Tạo ví mới
-    fun create(name: String): WalletInfo {
+    // Lấy ID ví đầu tiên (để unlock)
+    fun getActiveId(): String? {
+        return prefs.all.keys.mapNotNull { key ->
+            if (key.endsWith("_seed")) key.removeSuffix("_seed") else null
+        }.firstOrNull()
+    }
+
+    // MỞ KHÓA VÍ BẰNG MẬT KHẨU
+    fun unlock(id: String, password: String): Boolean {
+        return try {
+            val enc = prefs.getString("${id}_seed", "") ?: return false
+            val seed = CryptoUtil.decrypt(enc, password)
+            val name = prefs.getString("${id}_name", "") ?: ""
+            active = WalletInfo(id, name, seed)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // Tạo ví mới CÓ MẬT KHẨU
+    fun create(name: String, password: String): WalletInfo {
         val id = System.currentTimeMillis().toString() // id = timestamp
         val seed = DeterministicSeed(SecureRandom(), 128, "") // 12 từ
         val mnemonic = seed.mnemonicCode!!.joinToString(" ")
         val walletName = if (name.isBlank()) "Ví $id" else name
         val info = WalletInfo(id, walletName, mnemonic)
+        // MÃ HÓA seed trước khi lưu
+        val enc = CryptoUtil.encrypt(mnemonic, password)
         // lưu vào SharedPreferences
-        prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
+        prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
         active = info
         return info
     }
 
-    // Import ví từ seed
-    fun import(name: String, phrase: String): WalletInfo? {
+    // Import ví từ seed CÓ MẬT KHẨU
+    fun import(name: String, phrase: String, password: String): WalletInfo? {
         return try {
             val words = phrase.trim().split("\\s+".toRegex())
             if (words.size < 12) return null // phải >=12 từ
             DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000) // kiểm tra hợp lệ
             val id = System.currentTimeMillis().toString()
             val walletName = if (name.isBlank()) "Imported" else name
-            val info = WalletInfo(id, walletName, words.joinToString(" "))
-            prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
+            val mnemonic = words.joinToString(" ")
+            val info = WalletInfo(id, walletName, mnemonic)
+            val enc = CryptoUtil.encrypt(mnemonic, password)
+            prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc).apply()
             active = info
             info
         } catch (e: Exception) {
@@ -179,8 +196,4 @@ class WalletManager(private val ctx: Context) {
     fun getFeeRates(): FeeRates {
         val text = httpGet("https://mempool.space/api/v1/fees/recommended")
         val slow = Regex("\"hourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 5
-        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 10
-        val fast = Regex("\"fastestFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 20
-        return FeeRates(slow, normal, fast)
-    }
-}
+        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.
