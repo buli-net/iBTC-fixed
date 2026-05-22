@@ -280,7 +280,7 @@ class WalletManager(private val context: Context) {
 
         try {
             // Tạo seed 128-bit = 12 từ
-            val seed = DeterministicSeed(128, "", System.currentTimeMillis())
+            val seed = DeterministicSeed(128, "", Utils.currentTimeSeconds())
             val id = UUID.randomUUID().toString()
             val mnemonic = seed.mnemonicCode!!.joinToString(" ")
 
@@ -288,9 +288,9 @@ class WalletManager(private val context: Context) {
 
             // Lưu vào SharedPreferences (thực tế nên mã hóa AES)
             prefs.edit()
-              .putString(id, "$name|$mnemonic|$password")
-              .putString("active", id)
-              .apply()
+             .putString(id, "$name|$mnemonic|$password")
+             .putString("active", id)
+             .apply()
 
             // Tạo wallet file bitcoinj
             val wallet = Wallet.fromSeed(params, seed)
@@ -318,14 +318,14 @@ class WalletManager(private val context: Context) {
 
         return try {
             // Validate mnemonic
-            val seed = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis())
+            val seed = DeterministicSeed(mnemonic, null, "", Utils.currentTimeSeconds())
             val id = UUID.randomUUID().toString()
 
             // Lưu
             prefs.edit()
-              .putString(id, "$name|$mnemonic|$password")
-              .putString("active", id)
-              .apply()
+             .putString(id, "$name|$mnemonic|$password")
+             .putString("active", id)
+             .apply()
 
             // Tạo wallet file
             val wallet = Wallet.fromSeed(params, seed)
@@ -566,7 +566,7 @@ class WalletManager(private val context: Context) {
         val cold = getColdWallets().firstOrNull { it.name == walletName }?: return ""
 
         return try {
-            val key = DeterministicKey.deserializeB58(null, cold.xpub, params)
+            val key = DeterministicKey.deserializeB58(cold.xpub, params)
             val watchWallet = Wallet.fromWatchingKey(params, key)
             val address = watchWallet.currentReceiveAddress().toString()
 
@@ -589,7 +589,7 @@ class WalletManager(private val context: Context) {
         val cold = getColdWallets().firstOrNull { it.name == walletName }?: return 0.0
 
         return try {
-            val key = DeterministicKey.deserializeB58(null, cold.xpub, params)
+            val key = DeterministicKey.deserializeB58(cold.xpub, params)
             val watchWallet = Wallet.fromWatchingKey(params, key)
 
             // Thêm vào peerGroup để sync
@@ -631,7 +631,7 @@ class WalletManager(private val context: Context) {
         Log.i(TAG, "Tạo raw tx cho S1: $amountBtc BTC -> $toAddress")
 
         try {
-            val key = DeterministicKey.deserializeB58(null, xpub, params)
+            val key = DeterministicKey.deserializeB58(xpub, params)
             val watchWallet = Wallet.fromWatchingKey(params, key)
 
             // Đảm bảo đã sync
