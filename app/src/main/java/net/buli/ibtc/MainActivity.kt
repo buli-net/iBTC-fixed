@@ -326,10 +326,7 @@ class MainActivity : ComponentActivity() {
                                             0 -> fees.slow
                                             1 -> fees.normal
                                             2 -> fees.fast
-
-                                           
-else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
- //else -> customFee.toIntOrNull() ?: fees.normal
+                                            else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
                                         }
                                         val amountVal = amount.toDoubleOrNull() ?: 0.0
                                         val estFeeBtc = if (toAddress.isNotBlank() && amountVal > 0) {
@@ -365,7 +362,7 @@ else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
                                                     }
                                                 }
 
-                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0) { Text("GỬI") }
+                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0 && totalBtc <= wm.getBalance()) { Text("GỬI") }
                                                 if (result.isNotEmpty()) Text(result, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
 
                                                 if (showSendConfirm) {
@@ -402,7 +399,7 @@ else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
                                                 Spacer(Modifier.height(24.dp)); Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                                 val qrBitmap = remember(receiveAddress) {
                                                     val size = 512
-                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size)
+                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size, size)
                                                     Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply { for (x in 0 until size) for (y in 0 until size) setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) }
                                                 }
                                                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -428,10 +425,7 @@ else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
                                             Button(onClick = {
                                                 lifecycleScope.launch(Dispatchers.IO) {
                                                     wm.getActive()?.let { activeWallet ->
-                                                        val seed = activeWallet.seed
-                                                        wm.delete(activeWallet.id)
-                                                        wm.import(newName, seed, "1234")
-                                                        wm.init()
+                                                        wm.rename(activeWallet.id, newName)
                                                         withContext(Dispatchers.Main) { walletName = newName; showRename = false }
                                                     }
                                                 }
