@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.iBTC" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Kế thừa trực tiếp theme Material3 từ thư viện -->
+    <style name="Theme.iBTC" parent="Theme.Material3.DayNight.NoActionBar" />
 </resources>
