@@ -3,43 +3,69 @@ package net.buli.ibtc
 import android.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
-import javax.crypto.spec.IvParameterSpec
+import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import java.security.SecureRandom
 
 /**
- * CryptoUtil – mã hóa AES-256 seed bằng mật khẩu
- * Dùng PBKDF2 để tạo key từ pass, lưu dưới dạng Base64
+ * CryptoUtil - Mã hóa AES-256-GCM cho seed phrase
+ * 
+ * Chi tiết thuật toán:
+ * - PBKDF2WithHmacSHA256: 10,000 vòng lặp để tạo key từ mật khẩu
+ * - AES/GCM/NoPadding: mã hóa xác thực, chống chỉnh sửa dữ liệu
+ * - Salt 16 bytes + IV 12 bytes được tạo ngẫu nhiên và lưu cùng ciphertext
+ * - Key length: 256 bit
  */
 object CryptoUtil {
-    private const val ITERATIONS = 65536 // số vòng băm, càng cao càng khó brute force
-    private const val KEY_LENGTH = 256 // AES-256
+    private const val ITERATIONS = 10000
+    private const val KEY_LENGTH = 256
+    private const val SALT_LEN = 16
+    private const val IV_LEN = 12
+    private const val TAG_LEN = 128
 
-    // Mã hóa chuỗi plain thành Base64
-    fun encrypt(plain: String, password: String): String {
-        val salt = ByteArray(16) { 0 } // salt cố định cho đơn giản (ví cá nhân)
-        val iv = ByteArray(16) { 1 }   // vector khởi tạo
-        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_LENGTH)
-        val key = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
-        val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        cipher.init(Cipher.ENCRYPT_MODE, key, IvParameterSpec(iv))
-        val enc = cipher.doFinal(plain.toByteArray())
-        return Base64.encodeToString(enc, Base64.NO_WRAP)
+    /**
+     * Mã hóa văn bản bằng mật khẩu
+     * @return chuỗi Base64 chứa salt + iv + ciphertext
+     */
+    fun encrypt(plainText: String, password: String): String {
+        val salt = ByteArray(SALT_LEN).also { SecureRandom().nextBytes(it) }
+        val iv = ByteArray(IV_LEN).also { SecureRandom().nextBytes(it) }
+        
+        val key = deriveKey(password, salt)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_LEN, iv))
+        
+        val encrypted = cipher.doFinal(plainText.toByteArray(Charsets.UTF_8))
+        
+        // Ghép salt + iv + encrypted để lưu
+        val combined = salt + iv + encrypted
+        return Base64.encodeToString(combined, Base64.NO_WRAP)
     }
 
-    // Giải mã Base64 về plain, trả null nếu sai pass
-    fun decrypt(encBase64: String, password: String): String? {
-        return try {
-            val salt = ByteArray(16) { 0 }
-            val iv = ByteArray(16) { 1 }
-            val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_LENGTH)
-            val key = SecretKeySpec(factory.generateSecret(spec).encoded, "AES")
-            val cipher = Cipher.getInstance("AES/CBC/PKCS5Padding")
-            cipher.init(Cipher.DECRYPT_MODE, key, IvParameterSpec(iv))
-            val decoded = Base64.decode(encBase64, Base64.NO_WRAP)
-            String(cipher.doFinal(decoded))
-        } catch (_: Exception) { null } // sai pass sẽ throw
+    /**
+     * Giải mã văn bản bằng mật khẩu
+     * @throws Exception nếu sai mật khẩu hoặc dữ liệu hỏng
+     */
+    fun decrypt(encryptedBase64: String, password: String): String {
+        val combined = Base64.decode(encryptedBase64, Base64.NO_WRAP)
+        
+        val salt = combined.copyOfRange(0, SALT_LEN)
+        val iv = combined.copyOfRange(SALT_LEN, SALT_LEN + IV_LEN)
+        val encrypted = combined.copyOfRange(SALT_LEN + IV_LEN, combined.size)
+        
+        val key = deriveKey(password, salt)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_LEN, iv))
+        
+        val decrypted = cipher.doFinal(encrypted)
+        return String(decrypted, Charsets.UTF_8)
+    }
+
+    private fun deriveKey(password: String, salt: ByteArray): SecretKeySpec {
+        val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+        val spec = PBEKeySpec(password.toCharArray(), salt, ITERATIONS, KEY_LENGTH)
+        val keyBytes = factory.generateSecret(spec).encoded
+        return SecretKeySpec(keyBytes, "AES")
     }
 }
