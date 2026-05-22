@@ -24,6 +24,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import org.bitcoinj.core.*
+import org.bitcoinj.crypto.DeterministicKey
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
@@ -31,11 +32,13 @@ import org.bitcoinj.store.SPVBlockStore
 import org.bitcoinj.net.discovery.DnsDiscovery
 import org.bitcoinj.core.listeners.DownloadProgressTracker
 import java.io.File
+import java.security.SecureRandom
 import java.util.*
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
+import kotlin.math.abs
 
 // ============================================================================
 // SECTION 1: DATA CLASSES - Định nghĩa cấu trúc dữ liệu
@@ -183,7 +186,7 @@ class WalletManager(private val context: Context) {
             peerGroup?.addPeerDiscovery(DnsDiscovery(params))
 
             // Bước 5: Set listener để theo dõi tiến trình
-            peerGroup?.setDownloadListener(object : DownloadProgressTracker() {
+            peerGroup?.addDownloadProgressListener(object : DownloadProgressTracker() {
                 override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
                     val msg = "Sync $blocksSoFar blocks (${pct.toInt()}%)"
                     Log.d(TAG, msg)
@@ -280,7 +283,7 @@ class WalletManager(private val context: Context) {
 
         try {
             // Tạo seed 128-bit = 12 từ
-            val seed = DeterministicSeed(128, "", Utils.currentTimeSeconds())
+            val seed = DeterministicSeed(SecureRandom(), 128, "", Utils.currentTimeSeconds())
             val id = UUID.randomUUID().toString()
             val mnemonic = seed.mnemonicCode!!.joinToString(" ")
 
@@ -318,7 +321,7 @@ class WalletManager(private val context: Context) {
 
         return try {
             // Validate mnemonic
-            val seed = DeterministicSeed(mnemonic, null, "", Utils.currentTimeSeconds())
+            val seed = DeterministicSeed(mnemonic.trim().split(" "), null, "", Utils.currentTimeSeconds())
             val id = UUID.randomUUID().toString()
 
             // Lưu
@@ -420,14 +423,14 @@ class WalletManager(private val context: Context) {
     fun getTransactions(): List<TransactionInfo> {
         val w = wallet?: return emptyList()
 
-        return w.transactions.map { tx ->
+        return w.getTransactions(false).map { tx ->
             val value = tx.getValue(w).value
             val type = if (value > 0) "Nhận" else "Gửi"
 
             TransactionInfo(
                 txId = tx.txId.toString(),
                 type = type,
-                amount = Math.abs(value) / 1e8,
+                amount = abs(value) / 1e8,
                 time = tx.updateTime?: Date()
             )
         }.sortedByDescending { it.time }
@@ -593,14 +596,14 @@ class WalletManager(private val context: Context) {
             val watchWallet = Wallet.fromWatchingKey(params, key)
 
             // Thêm vào peerGroup để sync
-            if (peerGroup!= null &&!peerGroup!!.wallets.contains(watchWallet)) {
-                Log.d(TAG, "Thêm watch wallet vào peerGroup")
-                peerGroup!!.addWallet(watchWallet)
-                peerGroup!!.downloadBlockChain()
-
-                // Đợi 3 giây để sync
-                Thread.sleep(3000)
-            }
+            try {
+                if (peerGroup!= null) {
+                    Log.d(TAG, "Thêm watch wallet vào peerGroup")
+                    peerGroup!!.addWallet(watchWallet)
+                    peerGroup!!.downloadBlockChain()
+                    Thread.sleep(3000)
+                }
+            } catch (_: Exception) {}
 
             val balance = watchWallet.balance.value / 1e8
             Log.d(TAG, "Balance ví lạnh: $balance BTC")
@@ -635,11 +638,13 @@ class WalletManager(private val context: Context) {
             val watchWallet = Wallet.fromWatchingKey(params, key)
 
             // Đảm bảo đã sync
-            if (peerGroup!= null &&!peerGroup!!.wallets.contains(watchWallet)) {
-                peerGroup!!.addWallet(watchWallet)
-                peerGroup!!.downloadBlockChain()
-                Thread.sleep(2000)
-            }
+            try {
+                if (peerGroup!= null) {
+                    peerGroup!!.addWallet(watchWallet)
+                    peerGroup!!.downloadBlockChain()
+                    Thread.sleep(2000)
+                }
+            } catch (_: Exception) {}
 
             val to = Address.fromString(params, toAddress)
             val amount = Coin.valueOf((amountBtc * 1e8).toLong())
