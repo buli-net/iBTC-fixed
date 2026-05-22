@@ -189,7 +189,7 @@ class WalletManager(private val ctx: Context) {
             wallet.completeTx(request)
             wallet.commitTx(request.tx)
             kit!!.peerGroup().broadcastTransaction(request.tx).future().get()
-            request.txId.toString()
+            request.tx.txId.toString()
         } catch (e: Exception) {
             "Lỗi: ${e.message}"
         }
