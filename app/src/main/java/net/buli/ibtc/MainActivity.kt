@@ -280,7 +280,9 @@ class MainActivity : ComponentActivity() {
                                                 Column(Modifier.padding(16.dp)) {
                                                     Text("Số dư:")
                                                     Text("%.8f BTC".format(balance), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                                                    Text("≈ $%.2f / BTC".format(price))
+                                                    val totalUsd = balance * price
+                                                    Text("≈ $%,.2f".format(totalUsd), fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                                                    Text("$%,.2f / BTC".format(price), fontSize = 12.sp, color = Color.Gray)
                                                     Text("$status • Giá tự động", fontSize = 12.sp)
                                                     if (progress in 1..99) LinearProgressIndicator(progress = progress / 100f, Modifier.fillMaxWidth().padding(top = 8.dp))
                                                 }
@@ -313,20 +315,82 @@ class MainActivity : ComponentActivity() {
                                         var receiveAddress by remember { mutableStateOf("") }
                                         var fees by remember { mutableStateOf(FeeRates(5, 10, 20)) }
                                         var feeSelection by remember { mutableStateOf(1) }
+                                        var customFee by remember { mutableStateOf("") }
+                                        var showSendConfirm by remember { mutableStateOf(false) }
+                                        var sendPass by remember { mutableStateOf("") }
+                                        var sendErr by remember { mutableStateOf("") }
+
                                         LaunchedEffect(Unit) { withContext(Dispatchers.IO) { receiveAddress = wm.getAddress(); fees = wm.getFeeRates() } }
-                                        val selectedFee = when (feeSelection) { 0 -> fees.slow; 1 -> fees.normal; else -> fees.fast }
+
+                                        val selectedFeeRate = when (feeSelection) {
+                                            0 -> fees.slow
+                                            1 -> fees.normal
+                                            2 -> fees.fast
+                                            else -> customFee.toIntOrNull() ?: fees.normal
+                                        }
+                                        val estFeeBtc = selectedFeeRate * 250.0 / 100_000_000.0
+                                        val amountVal = amount.toDoubleOrNull() ?: 0.0
+                                        val totalBtc = amountVal + estFeeBtc
+
                                         LazyColumn(Modifier.padding(16.dp)) {
                                             item {
                                                 Text("Gửi BTC", fontWeight = FontWeight.Bold)
                                                 OutlinedTextField(value = toAddress, onValueChange = { toAddress = it }, label = { Text("Địa chỉ") }, modifier = Modifier.fillMaxWidth(), trailingIcon = { TextButton(onClick = { qrCallback = { scanned -> toAddress = scanned }; qrLauncher.launch(ScanOptions()) }) { Text("QR") } })
                                                 OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("BTC") }, modifier = Modifier.fillMaxWidth())
+                                                
+                                                Text("Phí mạng:", modifier = Modifier.padding(top = 8.dp))
+                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 0, onClick = { feeSelection = 0 }); Text("Chậm (${fees.slow} sat/vB)") }
+                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 1, onClick = { feeSelection = 1 }); Text("Thường (${fees.normal} sat/vB)") }
+                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 2, onClick = { feeSelection = 2 }); Text("Nhanh (${fees.fast} sat/vB)") }
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    RadioButton(selected = feeSelection == 0, onClick = { feeSelection = 0 }); Text("Chậm")
-                                                    Spacer(Modifier.width(8.dp)); RadioButton(selected = feeSelection == 1, onClick = { feeSelection = 1 }); Text("Thường")
-                                                    Spacer(Modifier.width(8.dp)); RadioButton(selected = feeSelection == 2, onClick = { feeSelection = 2 }); Text("Nhanh")
+                                                    RadioButton(selected = feeSelection == 3, onClick = { feeSelection = 3 }); Text("Tùy chỉnh")
+                                                    if (feeSelection == 3) {
+                                                        Spacer(Modifier.width(8.dp))
+                                                        OutlinedTextField(value = customFee, onValueChange = { customFee = it.filter { c -> c.isDigit() } }, label = { Text("sat/vB") }, singleLine = true, modifier = Modifier.width(120.dp))
+                                                    }
                                                 }
-                                                Button(onClick = { lifecycleScope.launch(Dispatchers.IO) { result = wm.send(toAddress, amount.toDoubleOrNull() ?: 0.0, selectedFee) } }, Modifier.fillMaxWidth()) { Text("GỬI") }
-                                                if (result.isNotEmpty()) Text(result, fontSize = 12.sp)
+
+                                                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                                    Column(Modifier.padding(12.dp)) {
+                                                        Text("Ước tính phí: %.8f BTC (≈ $%.2f)".format(estFeeBtc, estFeeBtc * price))
+                                                        Text("Tổng (gửi + phí): %.8f BTC".format(totalBtc), fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0) { Text("GỬI") }
+                                                if (result.isNotEmpty()) Text(result, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
+
+                                                if (showSendConfirm) {
+                                                    AlertDialog(
+                                                        onDismissRequest = { showSendConfirm = false },
+                                                        title = { Text("Xác nhận gửi") },
+                                                        text = {
+                                                            Column {
+                                                                Text("Gửi %.8f BTC tới:".format(amountVal))
+                                                                SelectionContainer { Text(toAddress) }
+                                                                Spacer(Modifier.height(4.dp))
+                                                                Text("Phí: %.8f BTC".format(estFeeBtc))
+                                                                Text("Tổng: %.8f BTC".format(totalBtc), fontWeight = FontWeight.Bold)
+                                                                Spacer(Modifier.height(8.dp))
+                                                                OutlinedTextField(value = sendPass, onValueChange = { sendPass = it; sendErr = "" }, label = { Text("Nhập mật khẩu ví") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                                                if (sendErr.isNotEmpty()) Text(sendErr, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
+                                                            }
+                                                        },
+                                                        confirmButton = {
+                                                            Button(onClick = {
+                                                                lifecycleScope.launch(Dispatchers.IO) {
+                                                                    val id = wm.getActive()?.id ?: ""
+                                                                    val ok = wm.unlock(id, sendPass)
+                                                                    if (!ok) { withContext(Dispatchers.Main) { sendErr = "Sai mật khẩu" }; return@launch }
+                                                                    val tx = wm.send(toAddress, amountVal, selectedFeeRate)
+                                                                    withContext(Dispatchers.Main) { result = tx; showSendConfirm = false; sendPass = ""; toAddress = ""; amount = "" }
+                                                                }
+                                                            }) { Text("XÁC NHẬN") }
+                                                        },
+                                                        dismissButton = { OutlinedButton(onClick = { showSendConfirm = false }) { Text("HỦY") } }
+                                                    )
+                                                }
+
                                                 Spacer(Modifier.height(24.dp)); Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                                 val qrBitmap = remember(receiveAddress) {
                                                     val size = 512
