@@ -1,195 +1,186 @@
 package net.buli.ibtc
 
 import android.content.Context
-import android.content.SharedPreferences
-import org.bitcoinj.core.*
+import org.bitcoinj.core.Address
+import org.bitcoinj.core.Coin
+import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.SendRequest
 import java.io.File
-import java.util.*
+import java.net.HttpURLConnection
+import java.net.URL
+import java.security.SecureRandom
+import java.util.Date
 
-/**
- * WalletManager - Quản lý ví Bitcoin với mã hóa mật khẩu
- * 
- * NGUYÊN LÝ BẢO MẬT:
- * 1. Seed phrase được mã hóa bằng AES-256-GCM với key từ mật khẩu (PBKDF2 10,000 vòng)
- * 2. Mật khẩu KHÔNG bao giờ được lưu trữ - chỉ dùng tạm thời để giải mã
- * 3. Khi lock, seed bị xóa khỏi RAM hoàn toàn
- * 4. Quên mật khẩu = mất quyền truy cập (phải dùng backup seed)
- */
-class WalletManager(private val context: Context) {
-    private val params = MainNetParams.get()
-    private val prefs: SharedPreferences = context.getSharedPreferences("btc_wallet", Context.MODE_PRIVATE)
-    private var kit: WalletAppKit? = null
-    private var decryptedSeed: String? = null
-    private var currentWalletName: String? = null
-    private var progressListener: ((Int, String) -> Unit)? = null
+// ===== DATA CLASS =====
+data class WalletInfo(val id: String, val name: String, val seed: String) // lưu id, tên, seed 12 từ
+data class TransactionInfo(val txId: String, val amount: Double, val type: String, val time: Date)
+data class FeeRates(val slow: Int, val normal: Int, val fast: Int) // phí sat/vB
 
-    // ========== KIỂM TRA TRẠNG THÁI ==========
-    fun hasWallets(): Boolean = prefs.getStringSet("wallets", emptySet())?.isNotEmpty() == true
-    
-    fun isUnlocked(): Boolean = decryptedSeed != null
-    
+class WalletManager(private val ctx: Context) {
+    private val params = MainNetParams.get() // dùng mạng Bitcoin mainnet
+    private var kit: WalletAppKit? = null // đối tượng sync blockchain của bitcoinj
+    private var active: WalletInfo? = null
+    private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
+    // ĐỌC GIÁ CACHE: nếu mất mạng vẫn có giá cũ, mặc định 67,500
+    private var lastPrice = prefs.getFloat("last_price", 67500f).toDouble()
+
+    // Kiểm tra SharedPreferences có ví nào chưa
+    fun hasWallets(): Boolean {
+        return prefs.all.keys.any { key -> key.endsWith("_seed") }
+    }
+
+    // Lấy ví đang dùng
     fun getActive(): WalletInfo? {
-        val name = currentWalletName ?: prefs.getString("active_wallet", null) ?: return null
-        return WalletInfo(name)
+        if (active != null) return active
+        val id = prefs.all.keys.mapNotNull { key ->
+            if (key.endsWith("_seed")) key.removeSuffix("_seed") else null
+        }.firstOrNull() ?: return null
+        val name = prefs.getString("${id}_name", "") ?: ""
+        val seed = prefs.getString("${id}_seed", "") ?: ""
+        active = WalletInfo(id, name, seed)
+        return active
     }
 
-    // ========== MỞ KHÓA VÀ KHÓA VÍ ==========
-    fun unlock(password: String): Boolean {
+    // Tạo ví mới
+    fun create(name: String): WalletInfo {
+        val id = System.currentTimeMillis().toString() // id = timestamp
+        val seed = DeterministicSeed(SecureRandom(), 128, "") // 12 từ
+        val mnemonic = seed.mnemonicCode!!.joinToString(" ")
+        val walletName = if (name.isBlank()) "Ví $id" else name
+        val info = WalletInfo(id, walletName, mnemonic)
+        // lưu vào SharedPreferences
+        prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
+        active = info
+        return info
+    }
+
+    // Import ví từ seed
+    fun import(name: String, phrase: String): WalletInfo? {
         return try {
-            val wallets = prefs.getStringSet("wallets", emptySet()) ?: return false
-            val name = prefs.getString("active_wallet", wallets.first()) ?: return false
-            
-            val encryptedSeed = prefs.getString("seed_$name", null) ?: return false
-            val seed = CryptoUtil.decrypt(encryptedSeed, password)
-            
-            decryptedSeed = seed
-            currentWalletName = name
-            true
+            val words = phrase.trim().split("\\s+".toRegex())
+            if (words.size < 12) return null // phải >=12 từ
+            DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000) // kiểm tra hợp lệ
+            val id = System.currentTimeMillis().toString()
+            val walletName = if (name.isBlank()) "Imported" else name
+            val info = WalletInfo(id, walletName, words.joinToString(" "))
+            prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", info.seed).apply()
+            active = info
+            info
         } catch (e: Exception) {
-            false
+            null
         }
     }
 
-    fun lock() {
-        decryptedSeed = null
-        kit?.stopAsync()
-        kit = null
-        currentWalletName = null
+    // Xóa ví
+    fun delete(id: String) {
+        try { stop() } catch (_: Exception) {} // dừng sync trước
+        prefs.edit().remove("${id}_name").remove("${id}_seed").apply()
+        File(ctx.filesDir, id).deleteRecursively() // xóa file blockchain
+        if (active?.id == id) { active = null }
     }
 
-    // ========== TẠO VÍ MỚI ==========
-    fun create(name: String, password: String) {
-        val seed = DeterministicSeed(System.currentTimeMillis() / 1000, 12)
-        val seedPhrase = seed.mnemonicCode.joinToString(" ")
-        
-        // Mã hóa seed trước khi lưu vào SharedPreferences
-        val encrypted = CryptoUtil.encrypt(seedPhrase, password)
-        
-        prefs.edit().apply {
-            putString("seed_$name", encrypted)
-            putStringSet("wallets", (prefs.getStringSet("wallets", emptySet()) ?: emptySet()) + name)
-            putString("active_wallet", name)
-            apply()
-        }
-        
-        decryptedSeed = seedPhrase
-        currentWalletName = name
-    }
-
-    // ========== IMPORT VÍ TỪ SEED ==========
-    fun import(name: String, phrase: String, password: String): Boolean {
-        return try {
-            // Kiểm tra seed hợp lệ trước khi lưu
-            DeterministicSeed(phrase, null, "", 0L)
-            
-            val encrypted = CryptoUtil.encrypt(phrase, password)
-            prefs.edit().apply {
-                putString("seed_$name", encrypted)
-                putStringSet("wallets", (prefs.getStringSet("wallets", emptySet()) ?: emptySet()) + name)
-                putString("active_wallet", name)
-                apply()
-            }
-            decryptedSeed = phrase
-            currentWalletName = name
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    // ========== KHỞI TẠO BITCOINJ KIT ==========
+    // Khởi tạo WalletAppKit
     fun init() {
-        if (decryptedSeed == null) return
-        
-        val walletDir = File(context.filesDir, "wallets")
-        walletDir.mkdirs()
-        
-        kit = object : WalletAppKit(params, walletDir, currentWalletName) {
-            override fun onSetupCompleted() {
-                wallet().addCoinsReceivedEventListener { _, _, _, _ -> }
-            }
-        }.apply {
-            setAutoSave(true)
-            setBlockingStartup(false)
-            
-            // Restore từ seed nếu ví chưa tồn tại
-            if (!File(walletDir, "$currentWalletName.wallet").exists()) {
-                restoreWalletFromSeed(DeterministicSeed(decryptedSeed, null, "", 0L))
-            }
-            
+        val info = getActive() ?: return
+        if (kit != null) return // đã chạy rồi
+        val seed = DeterministicSeed(info.seed.split(" "), null, "", 0L)
+        kit = WalletAppKit(params, File(ctx.filesDir, info.id), "ibtc").apply {
+            setBlockingStartup(false) // không block UI
+            restoreWalletFromSeed(seed)
+            setDownloadListener(object : DownloadProgressTracker() {})
             startAsync()
+            awaitRunning()
         }
     }
 
-    fun onProgress(callback: (Int, String) -> Unit) {
-        progressListener = callback
-        kit?.peerGroup()?.addBlocksDownloadedEventListener { _, _, blocksLeft, _ ->
-            val progress = if (blocksLeft <= 0) 100 else (100 - blocksLeft.coerceAtMost(100))
-            callback(progress, if (progress < 100) "Đang sync... $progress%" else "Đã đồng bộ")
-        }
+    fun stop() {
+        try { kit?.stopAsync()?.awaitTerminated() } catch (_: Exception) {}
+        kit = null
     }
 
-    // ========== CÁC THAO TÁC VÍ ==========
-    fun getBalance(): Double = kit?.wallet()?.balance?.toBtc()?.toDouble() ?: 0.0
-    
-    fun getAddress(): String = kit?.wallet()?.currentReceiveAddress()?.toString() ?: ""
-    
-    fun price(): Double = 67500.0 // TODO: gọi API thật
-    
+    // Lắng nghe % sync
+    fun onProgress(cb: (Int, String) -> Unit) {
+        kit?.setDownloadListener(object : DownloadProgressTracker() {
+            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
+                val percent = pct.toInt()
+                val text = if (percent < 100) "Đang sync ${percent}%" else "Đã sync"
+                cb(percent, text)
+            }
+            override fun doneDownload() { cb(100, "Đã sync") }
+        })
+    }
+
+    fun getBalance(): Double {
+        return kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
+    }
+
+    fun getAddress(): String {
+        return kit?.wallet()?.currentReceiveAddress().toString()
+    }
+
+    fun getSeed(): String { return active?.seed ?: "" }
+
     fun getTransactions(): List<TransactionInfo> {
         val wallet = kit?.wallet() ?: return emptyList()
-        return wallet.getTransactionsByTime().take(20).map { tx ->
-            val value = tx.getValue(wallet).toBtc().toDouble()
-            TransactionInfo(
-                type = if (value > 0) "Nhận" else "Gửi",
-                amount = kotlin.math.abs(value),
-                time = tx.updateTime,
-                hash = tx.txId.toString()
-            )
-        }
+        return wallet.getTransactionsByTime().map { tx ->
+            val value = tx.getValue(wallet).value.toDouble() / 1e8
+            TransactionInfo(tx.txId.toString(), kotlin.math.abs(value), if (value > 0) "Nhận" else "Gửi", tx.updateTime)
+        }.reversed()
     }
 
-    fun getFeeRates(): FeeRates = FeeRates(5, 10, 20)
-
-    fun send(toAddress: String, amountBtc: Double, feePerKb: Int): String {
+    // Gửi BTC
+    fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
         return try {
-            val wallet = kit?.wallet() ?: return "Ví chưa sẵn sàng"
-            val address = Address.fromString(params, toAddress)
-            val amount = Coin.valueOf((amountBtc * 1e8).toLong())
-            
-            val sendReq = Wallet.SendRequest.to(address, amount)
-            sendReq.feePerKb = Coin.valueOf(feePerKb * 1000L)
-            
-            val tx = wallet.sendCoins(sendReq).tx
-            tx.txId.toString()
-        } catch (e: Exception) {
-            "Lỗi: ${e.message}"
-        }
+            val wallet = kit!!.wallet()
+            val request = SendRequest.to(Address.fromString(params, to), Coin.parseCoin(amountBTC.toString()))
+            request.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
+            wallet.completeTx(request)
+            wallet.commitTx(request.tx)
+            kit!!.peerGroup().broadcastTransaction(request.tx).future().get()
+            request.tx.txId.toString()
+        } catch (e: Exception) { "Lỗi: ${e.message}" }
     }
 
-    // ========== BẢO MẬT NÂNG CAO ==========
-    fun getDecryptedSeed(password: String): String {
-        val name = currentWalletName ?: throw Exception("No wallet")
-        val encrypted = prefs.getString("seed_$name", null) ?: throw Exception("No seed")
-        return CryptoUtil.decrypt(encrypted, password)
-    }
-
-    fun changePassword(oldPass: String, newPass: String): Boolean {
+    // GET HTTP đơn giản
+    private fun httpGet(url: String): String {
         return try {
-            val name = currentWalletName ?: return false
-            val seed = getDecryptedSeed(oldPass)
-            val newEncrypted = CryptoUtil.encrypt(seed, newPass)
-            prefs.edit().putString("seed_$name", newEncrypted).apply()
-            true
-        } catch (e: Exception) {
-            false
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android)")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 7000
+            connection.readTimeout = 7000
+            connection.inputStream.bufferedReader().readText()
+        } catch (_: Exception) { "" }
+    }
+
+    // LẤY GIÁ BTC - 3 nguồn fallback + cache
+    fun price(): Double {
+        var text = httpGet("https://api.coinbase.com/v2/prices/BTC-USD/spot")
+        var price = Regex("\"amount\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        if (price == null) { // nguồn 2
+            text = httpGet("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+            price = Regex("\"price\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
         }
+        if (price == null) { // nguồn 3
+            text = httpGet("https://blockchain.info/ticker")
+            price = Regex("\"USD\"[^}]*\"last\":([\\d.]+)").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        }
+        val result = price ?: lastPrice // nếu fail hết, dùng cache
+        if (result != lastPrice) {
+            lastPrice = result
+            prefs.edit().putFloat("last_price", result.toFloat()).apply()
+        }
+        return result
+    }
+
+    fun getFeeRates(): FeeRates {
+        val text = httpGet("https://mempool.space/api/v1/fees/recommended")
+        val slow = Regex("\"hourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 5
+        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 10
+        val fast = Regex("\"fastestFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 20
+        return FeeRates(slow, normal, fast)
     }
 }
-
-data class WalletInfo(val name: String)
-data class TransactionInfo(val type: String, val amount: Double, val time: Date, val hash: String)
