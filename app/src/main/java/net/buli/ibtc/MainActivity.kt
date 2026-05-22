@@ -25,10 +25,11 @@ import java.util.Locale
 /**
  * MainActivity - Ví Bitcoin với bảo mật mật khẩu
  * 
- * THAY ĐỔI LỚN:
- * - FIX: Ép lightColorScheme() để luôn giống bản cũ, không bị dark mode
- * - Thêm màn hình khóa khi mở app
- * - Seed được mã hóa AES-256, không lưu pass
+ * THAY ĐỔI LỚN SO VỚI BẢN CŨ:
+ * 1. FIX: Ép lightColorScheme() - luôn nền trắng, không bị dark mode hệ thống
+ * 2. Thêm màn hình khóa (lock screen) khi mở app
+ * 3. Seed phrase được mã hóa AES-256, mật khẩu không lưu
+ * 4. Thêm chức năng xem seed và đổi mật khẩu
  */
 class MainActivity : ComponentActivity() {
     private lateinit var wm: WalletManager
@@ -38,10 +39,10 @@ class MainActivity : ComponentActivity() {
         wm = WalletManager(this)
 
         setContent {
-            // FIX THEME: ép light để không bị nền đen như ảnh của mày
+            // QUAN TRỌNG: Ép theme sáng để giống bản cũ
             MaterialTheme(colorScheme = lightColorScheme()) {
                 
-                // ========== STATE CHÍNH ==========
+                // ========== CÁC STATE QUẢN LÝ UI ==========
                 var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
                 var isLocked by remember { mutableStateOf(hasWallet && !wm.isUnlocked()) }
                 var balance by remember { mutableStateOf(0.0) }
@@ -58,7 +59,7 @@ class MainActivity : ComponentActivity() {
                 var txs by remember { mutableStateOf(listOf<TransactionInfo>()) }
                 var feeRates by remember { mutableStateOf(FeeRates(5, 10, 20)) }
 
-                // ========== MÀN HÌNH 1: KHÓA VÍ ==========
+                // ========== MÀN HÌNH 1: KHÓA VÍ (HIỆN KHI MỞ APP) ==========
                 if (isLocked) {
                     var pass by remember { mutableStateOf("") }
                     var error by remember { mutableStateOf("") }
@@ -132,7 +133,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     
-                    // ----- Dialog TẠO VÍ -----
+                    // Dialog tạo ví mới
                     if (showCreate) {
                         var name by remember { mutableStateOf("") }
                         var p1 by remember { mutableStateOf("") }
@@ -171,7 +172,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // ----- Dialog IMPORT -----
+                    // Dialog import ví
                     if (showImport) {
                         var name by remember { mutableStateOf("") }
                         var phrase by remember { mutableStateOf("") }
@@ -184,12 +185,12 @@ class MainActivity : ComponentActivity() {
                             confirmButton = {
                                 TextButton(onClick = {
                                     if (name.isBlank()) { err = "Nhập tên"; return@TextButton }
-                                    if (phrase.split(" ").size != 12) { err = "Cần đúng 12 từ"; return@TextButton }
+                                    if (phrase.trim().split("\\s+".toRegex()).size != 12) { err = "Cần đúng 12 từ"; return@TextButton }
                                     if (p1.length < 4) { err = "Pass tối thiểu 4"; return@TextButton }
                                     if (p1 != p2) { err = "Không khớp"; return@TextButton }
                                     showImport = false
                                     lifecycleScope.launch(Dispatchers.IO) {
-                                        val ok = wm.import(name, phrase.trim(), p1) != null
+                                        val ok = wm.import(name, phrase.trim(), p1)
                                         if (ok) wm.init()
                                         withContext(Dispatchers.Main) { if (ok) hasWallet = true }
                                     }
@@ -226,7 +227,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 Column(Modifier.fillMaxSize()) {
-                    // HEADER
+                    // Header với menu
                     Row(Modifier.fillMaxWidth().padding(16.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                         Text(wm.getActive()?.name ?: "Ví Bitcoin", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                         Box {
@@ -239,7 +240,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     
-                    // CARD SỐ DƯ
+                    // Card số dư
                     Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp), elevation = CardDefaults.cardElevation(4.dp)) {
                         Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("${String.format(Locale.US, "%.8f", balance)} BTC", fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -252,12 +253,13 @@ class MainActivity : ComponentActivity() {
                     
                     Spacer(Modifier.height(16.dp))
                     
-                    // TAB
-                    TabRow(selectedTabIndex = tab, containerColor = MaterialTheme.colorScheme.surface) {
+                    // Tabs
+                    TabRow(selectedTabIndex = tab) {
                         Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Ví") })
                         Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Gửi") })
                     }
                     
+                    // Tab Ví
                     if (tab == 0) {
                         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             item {
@@ -268,11 +270,11 @@ class MainActivity : ComponentActivity() {
                                 Text("Lịch sử giao dịch", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                             }
                             if (txs.isEmpty()) {
-                                item { Card(Modifier.fillMaxWidth()) { Box(Modifier.padding(24.dp)) { Text("Chưa có giao dịch", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
+                                item { Card(Modifier.fillMaxWidth()) { Box(Modifier.padding(24.dp), contentAlignment = Alignment.Center) { Text("Chưa có giao dịch", color = MaterialTheme.colorScheme.onSurfaceVariant) } } }
                             } else {
                                 items(txs) { tx ->
                                     Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(2.dp)) {
-                                        Row(Modifier.padding(12.dp).fillMaxWidth(), Arrangement.SpaceBetween) {
+                                        Row(Modifier.padding(12.dp).fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
                                                 Text(if (tx.type == "Nhận") "↓ Nhận" else "↑ Gửi", fontWeight = FontWeight.Bold, color = if (tx.type == "Nhận") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
                                                 Text(SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.US).format(tx.time), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -285,6 +287,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     
+                    // Tab Gửi
                     if (tab == 1) {
                         var to by remember { mutableStateOf("") }
                         var amt by remember { mutableStateOf("") }
@@ -317,13 +320,14 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // DIALOG XEM SEED
+                // Dialog xem seed
                 if (showSeed) {
                     var pass by remember { mutableStateOf("") }
                     var seed by remember { mutableStateOf<String?>(null) }
                     var error by remember { mutableStateOf("") }
                     
-                    AlertDialog(onDismissRequest = { showSeed = false; seed = null },
+                    AlertDialog(
+                        onDismissRequest = { showSeed = false; seed = null },
                         confirmButton = { TextButton(onClick = { showSeed = false; seed = null }) { Text(if (seed == null) "Hủy" else "Đóng") } },
                         title = { Text("Seed Phrase (12 từ)") },
                         text = {
@@ -347,7 +351,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
-                // DIALOG ĐỔI PASS
+                // Dialog đổi mật khẩu
                 if (showChangePass) {
                     var old by remember { mutableStateOf("") }
                     var n1 by remember { mutableStateOf("") }
@@ -355,7 +359,8 @@ class MainActivity : ComponentActivity() {
                     var err by remember { mutableStateOf("") }
                     var success by remember { mutableStateOf(false) }
                     
-                    AlertDialog(onDismissRequest = { showChangePass = false },
+                    AlertDialog(
+                        onDismissRequest = { showChangePass = false },
                         confirmButton = {
                             TextButton(onClick = {
                                 if (n1.length < 4) { err = "Tối thiểu 4 ký tự"; return@TextButton }
