@@ -44,10 +44,16 @@ class MainActivity : ComponentActivity() {
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { content -> qrCallback?.invoke(content) }
     }
+    private var lastInteractionTime = System.currentTimeMillis()
+    
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        lastInteractionTime = System.currentTimeMillis()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Chặn chụp màn hình
+        // Chặn chụp màn hình - bảo mật seed
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         wm = WalletManager(this)
 
@@ -91,12 +97,14 @@ class MainActivity : ComponentActivity() {
                     var isLocked by remember { mutableStateOf(false) }
                     var currentId by remember { mutableStateOf("") }
 
-                    // Tự động khóa sau 2 phút
+                    // Tự động khóa sau 2 phút không tương tác
                     LaunchedEffect(isLocked, hasWallet) {
-                        if (!isLocked && hasWallet) {
-                            delay(120000)
-                            withContext(Dispatchers.IO) { wm.lock() }
-                            isLocked = true
+                        while (!isLocked && hasWallet) {
+                            delay(10000)
+                            if (System.currentTimeMillis() - lastInteractionTime > 120000) {
+                                withContext(Dispatchers.IO) { wm.lock() }
+                                isLocked = true
+                            }
                         }
                     }
 
@@ -127,6 +135,7 @@ class MainActivity : ComponentActivity() {
                                     withContext(Dispatchers.Main) {
                                         if (ok) {
                                             isLocked = false
+                                            lastInteractionTime = System.currentTimeMillis()
                                             wm.init()
                                             walletName = wm.getActive()?.name ?: ""
                                             price = wm.price()
@@ -175,6 +184,7 @@ class MainActivity : ComponentActivity() {
                                                 withContext(Dispatchers.Main) {
                                                     hasWallet = true
                                                     isLocked = false
+                                                    lastInteractionTime = System.currentTimeMillis()
                                                     walletName = wm.getActive()?.name ?: ""
                                                 }
                                             }
@@ -216,6 +226,7 @@ class MainActivity : ComponentActivity() {
                                                     withContext(Dispatchers.Main) {
                                                         hasWallet = true
                                                         isLocked = false
+                                                        lastInteractionTime = System.currentTimeMillis()
                                                         walletName = wm.getActive()?.name ?: ""
                                                     }
                                                 }
@@ -428,7 +439,7 @@ class MainActivity : ComponentActivity() {
                                                 Spacer(Modifier.height(24.dp)); Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                                 val qrBitmap = remember(receiveAddress) {
                                                     val size = 512
-                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size, size)
+                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size)
                                                     Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply { for (x in 0 until size) for (y in 0 until size) setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) }
                                                 }
                                                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
