@@ -24,6 +24,7 @@ class WalletManager(private val ctx: Context) {
     private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
 
     fun hasWallets() = prefs.all.isNotEmpty()
+
     fun getActive(): WalletInfo? {
         if (active != null) return active
         val id = prefs.all.keys.firstOrNull() ?: return null
@@ -36,7 +37,8 @@ class WalletManager(private val ctx: Context) {
         val seed = DeterministicSeed(SecureRandom(), 128, "")
         val info = WalletInfo(id, name.ifBlank{"Ví $id"}, seed.mnemonicCode!!.joinToString(" "))
         prefs.edit().putString("${id}_name",info.name).putString("${id}_seed",info.seed).apply()
-        active = info; return info
+        active = info
+        return info
     }
 
     fun import(name: String, phrase: String): WalletInfo? = try {
@@ -46,28 +48,38 @@ class WalletManager(private val ctx: Context) {
             val id = System.currentTimeMillis().toString()
             val info = WalletInfo(id, name.ifBlank{"Imported"}, words.joinToString(" "))
             prefs.edit().putString("${id}_name",info.name).putString("${id}_seed",info.seed).apply()
-            active = info; info
+            active = info
+            info
         }
     } catch (_:Exception){ null }
 
-    fun delete(id: String){ prefs.edit().remove("${id}_name").remove("${id}_seed").apply(); File(ctx.filesDir,id).deleteRecursively(); if(active?.id==id) active=null }
+    fun delete(id: String){
+        prefs.edit().remove("${id}_name").remove("${id}_seed").apply()
+        File(ctx.filesDir,id).deleteRecursively()
+        if(active?.id==id) active=null
+    }
 
     fun init() {
         val info = getActive() ?: return
         val seed = DeterministicSeed(info.seed.split(" "), null, "", 0L)
         kit = WalletAppKit(params, File(ctx.filesDir, info.id), "ibtc").apply {
             setBlockingStartup(false)
+            // FIX: gắn listener trước khi start để nhận progress
+            setDownloadListener(object: DownloadProgressTracker(){})
             restoreWalletFromSeed(seed)
-            startAsync(); awaitRunning()
+            startAsync()
+            awaitRunning()
         }
     }
 
     fun stop(){ kit?.stopAsync(); kit?.awaitTerminated(); kit=null }
 
     fun onProgress(cb:(Int,String)->Unit){
-        kit?.setDownloadListener(object:DownloadProgressTracker(){
-            override fun progress(pct:Double,blocksSoFar:Int,date:Date?){ cb(pct.toInt(), if(pct<99)"Đang sync ${pct.toInt()}%" else "Đã sync") }
-            override fun doneDownload(){ cb(100,"Đã sync") }
+        kit?.setDownloadListener(object : DownloadProgressTracker() {
+            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
+                cb(pct.toInt(), if(pct<100) "Đang sync ${pct.toInt()}%" else "Đã sync")
+            }
+            override fun doneDownload() { cb(100, "Đã sync") }
         })
     }
 
@@ -82,7 +94,7 @@ class WalletManager(private val ctx: Context) {
     fun send(to:String, amountBTC:Double, feeRateSatVb:Int):String = try {
         val w = kit!!.wallet()
         val req = SendRequest.to(Address.fromString(params,to), Coin.parseCoin(amountBTC.toString()))
-        req.allowUnconfirmed() // cho phép spend UTXO chưa confirm
+        req.allowUnconfirmed()
         req.feePerKb = Coin.valueOf(feeRateSatVb.toLong()*1000)
         w.completeTx(req); w.commitTx(req.tx)
         kit!!.peerGroup().broadcastTransaction(req.tx).future().get()
@@ -91,9 +103,11 @@ class WalletManager(private val ctx: Context) {
 
     fun getFeeRates() = try {
         val txt = URL("https://mempool.space/api/v1/fees/recommended").readText()
-        FeeRates(Regex("\"hourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:5,
-                 Regex("\"halfHourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:10,
-                 Regex("\"fastestFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:20)
+        FeeRates(
+            Regex("\"hourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:5,
+            Regex("\"halfHourFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:10,
+            Regex("\"fastestFee\":(\\d+)").find(txt)?.groupValues?.get(1)?.toInt()?:20
+        )
     } catch(_:Exception){ FeeRates(5,10,20) }
 
     fun price() = try {
