@@ -9,7 +9,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.isSystemInDarkTheme // để biết máy đang dark hay light
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -36,56 +36,64 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
-    private lateinit var wm: WalletManager
-    private var qrCallback: ((String) -> Unit)? = null
+    private lateinit var wm: WalletManager // lớp quản lý ví Bitcoin
+    private var qrCallback: ((String) -> Unit)? = null // lưu callback khi quét QR xong
+    // launcher để mở camera quét QR
     private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let { content -> qrCallback?.invoke(content) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        wm = WalletManager(this)
+        wm = WalletManager(this) // khởi tạo WalletManager
 
+        // Vòng lặp auto-sync mỗi 60 giây ở background
         lifecycleScope.launch(Dispatchers.IO) {
             while (true) {
-                delay(60000)
+                delay(60000) // chờ 1 phút
                 try {
-                    wm.init()
-                    wm.getBalance()
-                    wm.price()
-                } catch (_: Exception) {}
+                    wm.init() // đảm bảo kit đang chạy
+                    wm.getBalance() // cập nhật số dư
+                    wm.price() // cập nhật giá
+                } catch (_: Exception) {} // bỏ qua lỗi mạng
             }
         }
 
         setContent {
-            val dark = isSystemInDarkTheme()
+            // ===== 1. XÁC ĐỊNH THEME THEO MÁY =====
+            val dark = isSystemInDarkTheme() // Android trả về true nếu dark mode
+            // Tạo bảng màu riêng cho dark và light
             val colors = if (dark) darkColorScheme(
-                primary = Color(0xFF7C4DFF),
+                primary = Color(0xFF7C4DFF), // màu tím nút chính
                 secondary = Color(0xFF7C4DFF),
-                background = Color(0xFF121212),
-                surface = Color(0xFF1E1E1E),
-                onPrimary = Color.White,
-                onBackground = Color.White,
-                onSurface = Color.White
+                background = Color(0xFF121212), // nền đen xám
+                surface = Color(0xFF1E1E1E), // nền card
+                onPrimary = Color.White, // chữ trên nút tím
+                onBackground = Color.White, // chữ trên nền đen
+                onSurface = Color.White // chữ trên card
             ) else lightColorScheme(
                 primary = Color(0xFF7C4DFF),
                 secondary = Color(0xFF7C4DFF),
-                background = Color(0xFFFDFD),
+                background = Color.White, // nền trắng
                 surface = Color.White,
                 onPrimary = Color.White,
-                onBackground = Color(0xFF1A1A1A),
+                onBackground = Color(0xFF1A1A1A), // chữ đen
                 onSurface = Color(0xFF1A1A1A)
             )
 
+            // Áp dụng theme
             MaterialTheme(colorScheme = colors) {
+                // Surface đảm bảo toàn màn hình có màu nền đúng
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
-                    var price by remember { mutableStateOf(0.0) }
-                    var walletName by remember { mutableStateOf(wm.getActive()?.name ?: "") }
+                    // ===== 2. STATE CHUNG =====
+                    var hasWallet by remember { mutableStateOf(wm.hasWallets()) } // đã có ví chưa
+                    var price by remember { mutableStateOf(0.0) } // giá BTC
+                    var walletName by remember { mutableStateOf(wm.getActive()?.name ?: "") } // tên ví
                     val context = LocalContext.current
-                    var isLocked by remember { mutableStateOf(false) }
-                    var currentId by remember { mutableStateOf("") }
+                    var isLocked by remember { mutableStateOf(false) } // trạng thái khóa
+                    var currentId by remember { mutableStateOf("") } // id ví cần mở
 
+                    // Khi app mở, nếu có ví thì chuyển sang màn khóa
                     LaunchedEffect(hasWallet) {
                         if (hasWallet) {
                             withContext(Dispatchers.IO) {
@@ -98,28 +106,38 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // ===== 3. MÀN HÌNH KHÓA =====
                     if (isLocked && hasWallet) {
                         var pass by remember { mutableStateOf("") }
                         var err by remember { mutableStateOf("") }
                         Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
                             Text("🔒 iBTC", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                             Spacer(Modifier.height(24.dp))
-                            OutlinedTextField(value = pass, onValueChange = { pass = it; err = "" }, label = { Text("Mật khẩu") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                            // ô nhập mật khẩu
+                            OutlinedTextField(
+                                value = pass,
+                                onValueChange = { pass = it; err = "" },
+                                label = { Text("Mật khẩu") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                             if (err.isNotEmpty()) {
                                 Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                             }
                             Spacer(Modifier.height(16.dp))
+                            // nút mở khóa
                             Button(onClick = {
                                 lifecycleScope.launch(Dispatchers.IO) {
-                                    val ok = wm.unlock(currentId, pass)
+                                    val ok = wm.unlock(currentId, pass) // thử giải mã seed
                                     withContext(Dispatchers.Main) {
                                         if (ok) {
-                                            isLocked = false
-                                            wm.init()
+                                            isLocked = false // mở thành công
+                                            wm.init() // bắt đầu sync blockchain
                                             walletName = wm.getActive()?.name ?: ""
                                             price = wm.price()
                                         } else {
-                                            err = "Sai mật khẩu"
+                                            err = "Sai mật khẩu" // báo lỗi
                                         }
                                     }
                                 }
@@ -127,9 +145,10 @@ class MainActivity : ComponentActivity() {
                                 Text("MỞ KHÓA")
                             }
                         }
-                        return@Surface
+                        return@Surface // dừng vẽ tiếp
                     }
 
+                    // ===== 4. MÀN TẠO VÍ LẦN ĐẦU =====
                     if (!hasWallet) {
                         var showCreate by remember { mutableStateOf(false) }
                         var showImport by remember { mutableStateOf(false) }
@@ -140,6 +159,7 @@ class MainActivity : ComponentActivity() {
                             Spacer(Modifier.height(8.dp))
                             OutlinedButton(onClick = { showImport = true }, Modifier.fillMaxWidth()) { Text("IMPORT SEED") }
                         }
+                        // Dialog tạo ví mới
                         if (showCreate) {
                             var name by remember { mutableStateOf("") }
                             var p1 by remember { mutableStateOf("") }
@@ -153,7 +173,7 @@ class MainActivity : ComponentActivity() {
                                         if (p1 != p2) { err = "Không khớp"; return@TextButton }
                                         showCreate = false
                                         lifecycleScope.launch(Dispatchers.IO) {
-                                            wm.create(name, p1)
+                                            wm.create(name, p1) // tạo seed và mã hóa
                                             wm.init()
                                             withContext(Dispatchers.Main) {
                                                 hasWallet = true
@@ -163,7 +183,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }) { Text("Tạo") }
                                 },
-                                title = { Text("Tên ví") },
+                                dismissButton = { TextButton(onClick = { showCreate = false }) { Text("Hủy") } },
+                                title = { Text("Tạo ví mới") },
                                 text = {
                                     Column {
                                         OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Tên ví") })
@@ -175,6 +196,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+                        // Dialog import seed
                         if (showImport) {
                             var name by remember { mutableStateOf("") }
                             var seed by remember { mutableStateOf("") }
@@ -201,7 +223,8 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }) { Text("Import") }
                                 },
-                                title = { Text("Import") },
+                                dismissButton = { TextButton(onClick = { showImport = false }) { Text("Hủy") } },
+                                title = { Text("Import ví") },
                                 text = {
                                     Column {
                                         OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tên") }, singleLine = true)
@@ -216,25 +239,34 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                     } else {
-                        var tab by remember { mutableStateOf(0) }
+                        // ===== 5. MÀN CHÍNH SAU KHI MỞ KHÓA =====
+                        var tab by remember { mutableStateOf(0) } // 0 = Ví, 1 = Gửi/Nhận
                         var showMenu by remember { mutableStateOf(false) }
                         var showRename by remember { mutableStateOf(false) }
                         var showDetails by remember { mutableStateOf(false) }
+                        var showChangePass by remember { mutableStateOf(false) } // state cho dialog đổi pass
 
                         Scaffold(
                             topBar = {
                                 TopAppBar(
                                     title = { Text(walletName) },
                                     actions = {
+                                        // nút 3 chấm
                                         IconButton(onClick = { showMenu = true }) { Text("⋮", fontSize = 20.sp) }
                                         DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                                            // 1. Đổi tên ví
                                             DropdownMenuItem(text = { Text("Đổi tên") }, onClick = { showMenu = false; showRename = true })
+                                            // 2. Đổi mật khẩu (MỚI THÊM)
+                                            DropdownMenuItem(text = { Text("Đổi mật khẩu") }, onClick = { showMenu = false; showChangePass = true })
+                                            // 3. Xem chi tiết
                                             DropdownMenuItem(text = { Text("Chi tiết ví") }, onClick = { showMenu = false; showDetails = true })
+                                            // 4. Khóa ví
                                             DropdownMenuItem(text = { Text("Khóa ví") }, onClick = {
                                                 showMenu = false
                                                 lifecycleScope.launch(Dispatchers.IO) { try { wm.stop() } catch (_: Exception) {} }
                                                 isLocked = true
                                             })
+                                            // 5. Xóa ví
                                             DropdownMenuItem(text = { Text("Xóa ví") }, onClick = {
                                                 showMenu = false
                                                 val id = wm.getActive()?.id
@@ -251,11 +283,13 @@ class MainActivity : ComponentActivity() {
                         ) { padding ->
                             Box(Modifier.padding(padding)) {
                                 Column(Modifier.fillMaxSize()) {
+                                    // Thanh tab
                                     TabRow(selectedTabIndex = tab) {
                                         Tab(selected = tab == 0, onClick = { tab = 0 }) { Text("Ví", Modifier.padding(12.dp)) }
                                         Tab(selected = tab == 1, onClick = { tab = 1 }) { Text("Gửi/Nhận", Modifier.padding(12.dp)) }
                                     }
 
+                                    // TAB VÍ
                                     if (tab == 0) {
                                         var balance by remember { mutableStateOf(0.0) }
                                         var progress by remember { mutableStateOf(0) }
@@ -265,12 +299,7 @@ class MainActivity : ComponentActivity() {
                                         val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
                                         LaunchedEffect(Unit) {
-                                            wm.onProgress { p, t ->
-                                                lifecycleScope.launch(Dispatchers.Main) {
-                                                    progress = p
-                                                    status = t
-                                                }
-                                            }
+                                            wm.onProgress { p, t -> lifecycleScope.launch(Dispatchers.Main) { progress = p; status = t } }
                                             withContext(Dispatchers.IO) {
                                                 balance = wm.getBalance()
                                                 price = wm.price()
@@ -339,6 +368,7 @@ class MainActivity : ComponentActivity() {
                                             }
                                         }
                                     } else {
+                                        // TAB GỬI/NHẬN
                                         var toAddress by remember { mutableStateOf("") }
                                         var amount by remember { mutableStateOf("") }
                                         var result by remember { mutableStateOf("") }
@@ -411,6 +441,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
 
+                            // ===== DIALOG ĐỔI TÊN =====
                             if (showRename) {
                                 var newName by remember { mutableStateOf(walletName) }
                                 AlertDialog(
@@ -421,17 +452,20 @@ class MainActivity : ComponentActivity() {
                                                 wm.getActive()?.let { activeWallet ->
                                                     val seed = activeWallet.seed
                                                     wm.delete(activeWallet.id)
-                                                    wm.import(newName, seed, "1234")
+                                                    wm.import(newName, seed, "1234") // lưu ý: cần nhập lại pass sau
                                                     wm.init()
                                                     withContext(Dispatchers.Main) { walletName = newName; showRename = false }
                                                 }
                                             }
                                         }) { Text("Lưu") }
                                     },
+                                    dismissButton = { TextButton(onClick = { showRename = false }) { Text("Hủy") } },
                                     title = { Text("Đổi tên ví") },
                                     text = { OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true) }
                                 )
                             }
+
+                            // ===== DIALOG CHI TIẾT VÍ =====
                             if (showDetails) {
                                 var passCheck by remember { mutableStateOf("") }
                                 var verified by remember { mutableStateOf(false) }
@@ -477,6 +511,45 @@ class MainActivity : ComponentActivity() {
                                                     Toast.makeText(context, "Đã copy seed", Toast.LENGTH_SHORT).show()
                                                 }) { Text("Copy seed") }
                                             }
+                                        }
+                                    }
+                                )
+                            }
+
+                            // ===== DIALOG ĐỔI MẬT KHẨU (MỚI) =====
+                            if (showChangePass) {
+                                var oldPass by remember { mutableStateOf("") }
+                                var newPass1 by remember { mutableStateOf("") }
+                                var newPass2 by remember { mutableStateOf("") }
+                                var err by remember { mutableStateOf("") }
+                                AlertDialog(
+                                    onDismissRequest = { showChangePass = false },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            if (newPass1.length < 4) { err = "Mật khẩu mới >=4 ký tự"; return@TextButton }
+                                            if (newPass1 != newPass2) { err = "Không khớp"; return@TextButton }
+                                            lifecycleScope.launch(Dispatchers.IO) {
+                                                val id = wm.getActive()?.id ?: ""
+                                                val ok = wm.changePassword(id, oldPass, newPass1)
+                                                withContext(Dispatchers.Main) {
+                                                    if (ok) {
+                                                        Toast.makeText(context, "Đổi mật khẩu thành công", Toast.LENGTH_SHORT).show()
+                                                        showChangePass = false
+                                                    } else {
+                                                        err = "Sai mật khẩu cũ"
+                                                    }
+                                                }
+                                            }
+                                        }) { Text("Lưu") }
+                                    },
+                                    dismissButton = { TextButton(onClick = { showChangePass = false }) { Text("Hủy") } },
+                                    title = { Text("Đổi mật khẩu") },
+                                    text = {
+                                        Column {
+                                            OutlinedTextField(value = oldPass, onValueChange = { oldPass = it; err = "" }, label = { Text("Mật khẩu cũ") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                                            OutlinedTextField(value = newPass1, onValueChange = { newPass1 = it; err = "" }, label = { Text("Mật khẩu mới") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                                            OutlinedTextField(value = newPass2, onValueChange = { newPass2 = it; err = "" }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true)
+                                            if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
                                         }
                                     }
                                 )
