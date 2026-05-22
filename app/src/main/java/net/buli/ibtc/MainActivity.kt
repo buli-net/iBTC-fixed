@@ -331,8 +331,13 @@ class MainActivity : ComponentActivity() {
 else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
  //else -> customFee.toIntOrNull() ?: fees.normal
                                         }
-                                        val estFeeBtc = selectedFeeRate * 250.0 / 100_000_000.0
                                         val amountVal = amount.toDoubleOrNull() ?: 0.0
+                                        val estFeeBtc = if (toAddress.isNotBlank() && amountVal > 0) {
+                                            try { wm.estimateFee(toAddress, amountVal, selectedFeeRate) } 
+                                            catch (_: Exception) { selectedFeeRate * 250.0 / 100_000_000.0 }
+                                        } else {
+                                            selectedFeeRate * 250.0 / 100_000_000.0
+                                        }
                                         val totalBtc = amountVal + estFeeBtc
 
                                         LazyColumn(Modifier.padding(16.dp)) {
@@ -397,7 +402,7 @@ else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
                                                 Spacer(Modifier.height(24.dp)); Text("Nhận BTC", fontWeight = FontWeight.Bold)
                                                 val qrBitmap = remember(receiveAddress) {
                                                     val size = 512
-                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size, size)
+                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size)
                                                     Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply { for (x in 0 until size) for (y in 0 until size) setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) }
                                                 }
                                                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
