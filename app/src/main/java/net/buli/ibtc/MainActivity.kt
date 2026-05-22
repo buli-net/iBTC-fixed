@@ -5,6 +5,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -44,6 +47,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Chặn chụp màn hình
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         wm = WalletManager(this)
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -86,6 +91,15 @@ class MainActivity : ComponentActivity() {
                     var isLocked by remember { mutableStateOf(false) }
                     var currentId by remember { mutableStateOf("") }
 
+                    // Tự động khóa sau 2 phút
+                    LaunchedEffect(isLocked, hasWallet) {
+                        if (!isLocked && hasWallet) {
+                            delay(120000)
+                            withContext(Dispatchers.IO) { wm.lock() }
+                            isLocked = true
+                        }
+                    }
+
                     LaunchedEffect(hasWallet) {
                         if (hasWallet) {
                             withContext(Dispatchers.IO) {
@@ -116,7 +130,7 @@ class MainActivity : ComponentActivity() {
                                             wm.init()
                                             walletName = wm.getActive()?.name ?: ""
                                             price = wm.price()
-                                        } else err = "Sai mật khẩu"
+                                        } else err = "Sai mật khẩu (5 lần sẽ khóa)"
                                     }
                                 }
                             }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("MỞ KHÓA") }
@@ -147,12 +161,12 @@ class MainActivity : ComponentActivity() {
                                     Column {
                                         OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Tên ví") }, modifier = Modifier.fillMaxWidth())
                                         Spacer(Modifier.height(8.dp))
-                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu (>=8 ký tự)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                         OutlinedTextField(value = p2, onValueChange = { p2 = it }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                         if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                                         Spacer(Modifier.height(16.dp))
                                         Button(onClick = {
-                                            if (p1.length < 4) { err = "Mật khẩu >=4 ký tự"; return@Button }
+                                            if (p1.length < 8) { err = "Mật khẩu >=8 ký tự"; return@Button }
                                             if (p1 != p2) { err = "Không khớp"; return@Button }
                                             showCreate = false
                                             lifecycleScope.launch(Dispatchers.IO) {
@@ -187,12 +201,12 @@ class MainActivity : ComponentActivity() {
                                         Spacer(Modifier.height(8.dp))
                                         OutlinedTextField(value = seed, onValueChange = { seed = it }, label = { Text("Seed 12 từ") }, modifier = Modifier.fillMaxWidth())
                                         Spacer(Modifier.height(8.dp))
-                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu mới") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu mới (>=8)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                         OutlinedTextField(value = p2, onValueChange = { p2 = it }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                         if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
                                         Spacer(Modifier.height(16.dp))
                                         Button(onClick = {
-                                            if (p1.length < 4) { err = "Mật khẩu >=4"; return@Button }
+                                            if (p1.length < 8) { err = "Mật khẩu >=8"; return@Button }
                                             if (p1 != p2) { err = "Không khớp"; return@Button }
                                             showImport = false
                                             lifecycleScope.launch(Dispatchers.IO) {
@@ -233,7 +247,7 @@ class MainActivity : ComponentActivity() {
                                             DropdownMenuItem(text = { Text("Chi tiết ví") }, onClick = { showMenu = false; showDetails = true })
                                             DropdownMenuItem(text = { Text("Khóa ví") }, onClick = {
                                                 showMenu = false
-                                                lifecycleScope.launch(Dispatchers.IO) { try { wm.stop() } catch (_: Exception) {} }
+                                                lifecycleScope.launch(Dispatchers.IO) { wm.lock() }
                                                 isLocked = true
                                             })
                                             DropdownMenuItem(text = { Text("Xóa ví") }, onClick = { showMenu = false; showDeleteConfirm = true })
@@ -319,8 +333,15 @@ class MainActivity : ComponentActivity() {
                                         var showSendConfirm by remember { mutableStateOf(false) }
                                         var sendPass by remember { mutableStateOf("") }
                                         var sendErr by remember { mutableStateOf("") }
+                                        var currentBalance by remember { mutableStateOf(0.0) }
 
-                                        LaunchedEffect(Unit) { withContext(Dispatchers.IO) { receiveAddress = wm.getAddress(); fees = wm.getFeeRates() } }
+                                        LaunchedEffect(Unit) { 
+                                            withContext(Dispatchers.IO) { 
+                                                receiveAddress = wm.getAddress()
+                                                fees = wm.getFeeRates()
+                                                currentBalance = wm.getBalance()
+                                            } 
+                                        }
 
                                         val selectedFeeRate = when (feeSelection) {
                                             0 -> fees.slow
@@ -359,10 +380,11 @@ class MainActivity : ComponentActivity() {
                                                     Column(Modifier.padding(12.dp)) {
                                                         Text("Ước tính phí: %.8f BTC (≈ $%.2f)".format(estFeeBtc, estFeeBtc * price))
                                                         Text("Tổng (gửi + phí): %.8f BTC".format(totalBtc), fontWeight = FontWeight.Bold)
+                                                        Text("Số dư: %.8f BTC".format(currentBalance), fontSize = 12.sp)
                                                     }
                                                 }
 
-                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0 && totalBtc <= wm.getBalance()) { Text("GỬI") }
+                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0 && totalBtc <= currentBalance) { Text("GỬI") }
                                                 if (result.isNotEmpty()) Text(result, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
 
                                                 if (showSendConfirm) {
@@ -388,7 +410,14 @@ class MainActivity : ComponentActivity() {
                                                                     val ok = wm.unlock(id, sendPass)
                                                                     if (!ok) { withContext(Dispatchers.Main) { sendErr = "Sai mật khẩu" }; return@launch }
                                                                     val tx = wm.send(toAddress, amountVal, selectedFeeRate)
-                                                                    withContext(Dispatchers.Main) { result = tx; showSendConfirm = false; sendPass = ""; toAddress = ""; amount = "" }
+                                                                    withContext(Dispatchers.Main) { 
+                                                                        result = tx
+                                                                        showSendConfirm = false
+                                                                        sendPass = ""
+                                                                        toAddress = ""
+                                                                        amount = ""
+                                                                        currentBalance = wm.getBalance()
+                                                                    }
                                                                 }
                                                             }) { Text("XÁC NHẬN") }
                                                         },
@@ -406,7 +435,12 @@ class MainActivity : ComponentActivity() {
                                                     Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = null, Modifier.size(220.dp))
                                                     Spacer(Modifier.height(8.dp)); SelectionContainer { Text(receiveAddress) }
                                                 }
-                                                Button(onClick = { val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; clipboard.setPrimaryClip(ClipData.newPlainText("btc", receiveAddress)); Toast.makeText(context, "Đã copy", Toast.LENGTH_SHORT).show() }, Modifier.fillMaxWidth()) { Text("COPY") }
+                                                Button(onClick = { 
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("btc", receiveAddress))
+                                                    Toast.makeText(context, "Đã copy", Toast.LENGTH_SHORT).show()
+                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
+                                                }, Modifier.fillMaxWidth()) { Text("COPY") }
                                             }
                                         }
                                     }
@@ -465,9 +499,19 @@ class MainActivity : ComponentActivity() {
                                             Column {
                                                 Text("Tên: $walletName", fontWeight = FontWeight.Bold)
                                                 Spacer(Modifier.height(8.dp)); Text("Địa chỉ:"); SelectionContainer { Text(address) }
-                                                Button(onClick = { val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; clipboard.setPrimaryClip(ClipData.newPlainText("addr", address)); Toast.makeText(context, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("Copy địa chỉ") }
+                                                Button(onClick = { 
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("addr", address))
+                                                    Toast.makeText(context, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
+                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
+                                                }, modifier = Modifier.fillMaxWidth()) { Text("Copy địa chỉ") }
                                                 Spacer(Modifier.height(8.dp)); Text("Seed 12 từ:"); SelectionContainer { Text(seed) }
-                                                Button(onClick = { val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager; clipboard.setPrimaryClip(ClipData.newPlainText("seed", seed)); Toast.makeText(context, "Đã copy seed", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) { Text("Copy seed") }
+                                                Button(onClick = { 
+                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                                    clipboard.setPrimaryClip(ClipData.newPlainText("seed", seed))
+                                                    Toast.makeText(context, "Đã copy seed", Toast.LENGTH_SHORT).show()
+                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
+                                                }, modifier = Modifier.fillMaxWidth()) { Text("Copy seed") }
                                                 Spacer(Modifier.height(12.dp))
                                                 OutlinedButton(onClick = { showDetails = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("ĐÓNG") }
                                             }
@@ -487,12 +531,12 @@ class MainActivity : ComponentActivity() {
                                     text = {
                                         Column {
                                             OutlinedTextField(value = oldPass, onValueChange = { oldPass = it; err = "" }, label = { Text("Mật khẩu cũ") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                            OutlinedTextField(value = newPass1, onValueChange = { newPass1 = it; err = "" }, label = { Text("Mật khẩu mới") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                                            OutlinedTextField(value = newPass1, onValueChange = { newPass1 = it; err = "" }, label = { Text("Mật khẩu mới (>=8)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                             OutlinedTextField(value = newPass2, onValueChange = { newPass2 = it; err = "" }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                                             if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
                                             Spacer(Modifier.height(16.dp))
                                             Button(onClick = {
-                                                if (newPass1.length < 4) { err = "Mật khẩu mới >=4 ký tự"; return@Button }
+                                                if (newPass1.length < 8) { err = "Mật khẩu mới >=8 ký tự"; return@Button }
                                                 if (newPass1 != newPass2) { err = "Không khớp"; return@Button }
                                                 lifecycleScope.launch(Dispatchers.IO) {
                                                     val id = wm.getActive()?.id ?: ""
@@ -539,7 +583,6 @@ class MainActivity : ComponentActivity() {
                                                             withContext(Dispatchers.Main) { err = "Sai mật khẩu"; isDeleting = false }
                                                             return@launch
                                                         }
-                                                        try { wm.stop() } catch (_: Exception) {}
                                                         wm.delete(id)
                                                         val stillHas = wm.hasWallets()
                                                         withContext(Dispatchers.Main) {
@@ -570,6 +613,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        try { wm.stop() } catch (_: Exception) {}
+        try { wm.lock() } catch (_: Exception) {}
     }
 }
