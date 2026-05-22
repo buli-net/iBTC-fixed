@@ -10,7 +10,7 @@ import javax.crypto.spec.SecretKeySpec
 
 /**
  * CryptoUtil v4 - PBKDF2 200,000 iterations + AES-GCM
- * Thay thế bản cũ yếu
+ * Thay thế bản cũ yếu (1000 iterations)
  */
 object CryptoUtil {
     private const val ITERATIONS = 200000
