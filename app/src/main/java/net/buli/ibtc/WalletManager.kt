@@ -182,6 +182,18 @@ class WalletManager(private val ctx: Context) {
         }
     }
 
+    fun estimateFee(to: String, amountBTC: Double, feeRateSatVb: Int): Double {
+        return try {
+            val wallet = kit?.wallet() ?: return feeRateSatVb * 250.0 / 1e8
+            val request = SendRequest.to(Address.fromString(params, to), Coin.parseCoin(amountBTC.toString()))
+            request.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
+            wallet.completeTx(request)
+            request.tx.fee?.value?.toDouble()?.div(1e8) ?: feeRateSatVb * 250.0 / 1e8
+        } catch (e: Exception) {
+            feeRateSatVb * 250.0 / 1e8
+        }
+    }
+
     private fun httpGet(url: String): String {
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
