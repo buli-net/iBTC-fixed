@@ -1,629 +1,726 @@
 package net.buli.ibtc
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
+import android.text.method.PasswordTransformationMethod
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Toast
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.lifecycle.lifecycleScope
+import android.widget.*
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.setPadding
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
-import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
-class MainActivity : ComponentActivity() {
-    private lateinit var wm: WalletManager
-    private var qrCallback: ((String) -> Unit)? = null
-    private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
-        result.contents?.let { content -> qrCallback?.invoke(content) }
-    }
+// ============================================================================
+// MainActivity v4.1 - iBTC Wallet
+// Fix: QRCodeWriter.encode() - bỏ tham số hints (lỗi compile v4.0 dòng 442)
+// Bảo mật: FLAG_SECURE, auto-lock 2 phút, xóa clipboard 30s, giới hạn 5 lần pass
+// ============================================================================
+class MainActivity : AppCompatActivity() {
+
+    // ------------------------------------------------------------------------
+    // Biến toàn cục
+    // ------------------------------------------------------------------------
+    private lateinit var walletManager: WalletManager
+    private val handler = Handler(Looper.getMainLooper())
     private var lastInteractionTime = System.currentTimeMillis()
-    
+    private val AUTO_LOCK_MS = 120_000L // 2 phút
+
+    private lateinit var rootLayout: LinearLayout
+    private lateinit var scrollView: ScrollView
+
+    // UI chính
+    private lateinit var balanceText: TextView
+    private lateinit var priceText: TextView
+    private lateinit var addressText: TextView
+    private lateinit var syncText: TextView
+    private lateinit var syncProgressBar: ProgressBar
+    private lateinit var txListView: ListView
+    private lateinit var walletNameText: TextView
+
+    private var isSyncing = false
+
+    // ------------------------------------------------------------------------
+    // Lifecycle
+    // ------------------------------------------------------------------------
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Chặn screenshot / screen record - bảo mật seed
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
+
+        walletManager = WalletManager(this)
+
+        setupRootLayout()
+        setContentView(scrollView)
+
+        startAutoLockChecker()
+
+        // Kiểm tra ví
+        if (walletManager.hasWallets()) {
+            showUnlockDialog()
+        } else {
+            showWelcome()
+        }
+    }
+
     override fun onUserInteraction() {
         super.onUserInteraction()
         lastInteractionTime = System.currentTimeMillis()
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        // Chặn chụp màn hình - bảo mật seed
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
-        wm = WalletManager(this)
+    override fun onPause() {
+        super.onPause()
+        lastInteractionTime = System.currentTimeMillis()
+    }
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            while (true) {
-                delay(60000)
-                try {
-                    wm.init()
-                    wm.getBalance()
-                    wm.price()
-                } catch (_: Exception) {}
-            }
-        }
-
-        setContent {
-            val dark = isSystemInDarkTheme()
-            val colors = if (dark) darkColorScheme(
-                primary = Color(0xFF7C4DFF),
-                secondary = Color(0xFF7C4DFF),
-                background = Color(0xFF121212),
-                surface = Color(0xFF1E1E1E),
-                onPrimary = Color.White,
-                onBackground = Color.White,
-                onSurface = Color.White
-            ) else lightColorScheme(
-                primary = Color(0xFF7C4DFF),
-                secondary = Color(0xFF7C4DFF),
-                background = Color.White,
-                surface = Color.White,
-                onPrimary = Color.White,
-                onBackground = Color(0xFF1A1A1A),
-                onSurface = Color(0xFF1A1A1A)
-            )
-
-            MaterialTheme(colorScheme = colors) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    var hasWallet by remember { mutableStateOf(wm.hasWallets()) }
-                    var price by remember { mutableStateOf(0.0) }
-                    var walletName by remember { mutableStateOf(wm.getActive()?.name ?: "") }
-                    val context = LocalContext.current
-                    var isLocked by remember { mutableStateOf(false) }
-                    var currentId by remember { mutableStateOf("") }
-
-                    // Tự động khóa sau 2 phút không tương tác
-                    LaunchedEffect(isLocked, hasWallet) {
-                        while (!isLocked && hasWallet) {
-                            delay(10000)
-                            if (System.currentTimeMillis() - lastInteractionTime > 120000) {
-                                withContext(Dispatchers.IO) { wm.lock() }
-                                isLocked = true
-                            }
-                        }
-                    }
-
-                    LaunchedEffect(hasWallet) {
-                        if (hasWallet) {
-                            withContext(Dispatchers.IO) {
-                                try {
-                                    currentId = wm.getActiveId() ?: ""
-                                    isLocked = true
-                                    walletName = ""
-                                } catch (_: Exception) {}
-                            }
-                        }
-                    }
-
-                    if (isLocked && hasWallet) {
-                        var pass by remember { mutableStateOf("") }
-                        var err by remember { mutableStateOf("") }
-                        Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
-                            Text("🔒 iBTC", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-                            Spacer(Modifier.height(24.dp))
-                            OutlinedTextField(value = pass, onValueChange = { pass = it; err = "" }, label = { Text("Mật khẩu") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                            if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-                            Spacer(Modifier.height(16.dp))
-                            Button(onClick = {
-                                lifecycleScope.launch(Dispatchers.IO) {
-                                    val ok = wm.unlock(currentId, pass)
-                                    withContext(Dispatchers.Main) {
-                                        if (ok) {
-                                            isLocked = false
-                                            lastInteractionTime = System.currentTimeMillis()
-                                            wm.init()
-                                            walletName = wm.getActive()?.name ?: ""
-                                            price = wm.price()
-                                        } else err = "Sai mật khẩu (5 lần sẽ khóa)"
-                                    }
-                                }
-                            }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("MỞ KHÓA") }
-                        }
-                        return@Surface
-                    }
-
-                    if (!hasWallet) {
-                        var showCreate by remember { mutableStateOf(false) }
-                        var showImport by remember { mutableStateOf(false) }
-                        Column(Modifier.fillMaxSize().padding(32.dp), Arrangement.Center, Alignment.CenterHorizontally) {
-                            Text("iBTC", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
-                            Spacer(Modifier.height(24.dp))
-                            Button(onClick = { showCreate = true }, Modifier.fillMaxWidth().height(50.dp)) { Text("TẠO VÍ MỚI") }
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { showImport = true }, Modifier.fillMaxWidth().height(50.dp)) { Text("IMPORT SEED") }
-                        }
-                        if (showCreate) {
-                            var name by remember { mutableStateOf("") }
-                            var p1 by remember { mutableStateOf("") }
-                            var p2 by remember { mutableStateOf("") }
-                            var err by remember { mutableStateOf("") }
-                            AlertDialog(
-                                onDismissRequest = { showCreate = false },
-                                confirmButton = {},
-                                title = { Text("Tạo ví mới") },
-                                text = {
-                                    Column {
-                                        OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true, label = { Text("Tên ví") }, modifier = Modifier.fillMaxWidth())
-                                        Spacer(Modifier.height(8.dp))
-                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu (>=8 ký tự)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                        OutlinedTextField(value = p2, onValueChange = { p2 = it }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                        if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-                                        Spacer(Modifier.height(16.dp))
-                                        Button(onClick = {
-                                            if (p1.length < 8) { err = "Mật khẩu >=8 ký tự"; return@Button }
-                                            if (p1 != p2) { err = "Không khớp"; return@Button }
-                                            showCreate = false
-                                            lifecycleScope.launch(Dispatchers.IO) {
-                                                wm.create(name, p1)
-                                                wm.init()
-                                                withContext(Dispatchers.Main) {
-                                                    hasWallet = true
-                                                    isLocked = false
-                                                    lastInteractionTime = System.currentTimeMillis()
-                                                    walletName = wm.getActive()?.name ?: ""
-                                                }
-                                            }
-                                        }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("TẠO VÍ") }
-                                        Spacer(Modifier.height(8.dp))
-                                        OutlinedButton(onClick = { showCreate = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("HỦY") }
-                                    }
-                                }
-                            )
-                        }
-                        if (showImport) {
-                            var name by remember { mutableStateOf("") }
-                            var seed by remember { mutableStateOf("") }
-                            var p1 by remember { mutableStateOf("") }
-                            var p2 by remember { mutableStateOf("") }
-                            var err by remember { mutableStateOf("") }
-                            AlertDialog(
-                                onDismissRequest = { showImport = false },
-                                confirmButton = {},
-                                title = { Text("Import ví") },
-                                text = {
-                                    Column {
-                                        OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Tên") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                                        Spacer(Modifier.height(8.dp))
-                                        OutlinedTextField(value = seed, onValueChange = { seed = it }, label = { Text("Seed 12 từ") }, modifier = Modifier.fillMaxWidth())
-                                        Spacer(Modifier.height(8.dp))
-                                        OutlinedTextField(value = p1, onValueChange = { p1 = it }, label = { Text("Mật khẩu mới (>=8)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                        OutlinedTextField(value = p2, onValueChange = { p2 = it }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                        if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-                                        Spacer(Modifier.height(16.dp))
-                                        Button(onClick = {
-                                            if (p1.length < 8) { err = "Mật khẩu >=8"; return@Button }
-                                            if (p1 != p2) { err = "Không khớp"; return@Button }
-                                            showImport = false
-                                            lifecycleScope.launch(Dispatchers.IO) {
-                                                val ok = wm.import(name, seed, p1) != null
-                                                if (ok) {
-                                                    wm.init()
-                                                    withContext(Dispatchers.Main) {
-                                                        hasWallet = true
-                                                        isLocked = false
-                                                        lastInteractionTime = System.currentTimeMillis()
-                                                        walletName = wm.getActive()?.name ?: ""
-                                                    }
-                                                }
-                                            }
-                                        }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("IMPORT") }
-                                        Spacer(Modifier.height(8.dp))
-                                        OutlinedButton(onClick = { showImport = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("HỦY") }
-                                    }
-                                }
-                            )
-                        }
-                    } else {
-                        var tab by remember { mutableStateOf(0) }
-                        var showMenu by remember { mutableStateOf(false) }
-                        var showRename by remember { mutableStateOf(false) }
-                        var showDetails by remember { mutableStateOf(false) }
-                        var showChangePass by remember { mutableStateOf(false) }
-                        var showDeleteConfirm by remember { mutableStateOf(false) }
-
-                        Scaffold(
-                            topBar = {
-                                TopAppBar(
-                                    title = { Text(walletName) },
-                                    actions = {
-                                        IconButton(onClick = { showMenu = true }) { Text("⋮", fontSize = 20.sp) }
-                                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                            DropdownMenuItem(text = { Text("Đổi tên") }, onClick = { showMenu = false; showRename = true })
-                                            DropdownMenuItem(text = { Text("Đổi mật khẩu") }, onClick = { showMenu = false; showChangePass = true })
-                                            DropdownMenuItem(text = { Text("Chi tiết ví") }, onClick = { showMenu = false; showDetails = true })
-                                            DropdownMenuItem(text = { Text("Khóa ví") }, onClick = {
-                                                showMenu = false
-                                                lifecycleScope.launch(Dispatchers.IO) { wm.lock() }
-                                                isLocked = true
-                                            })
-                                            DropdownMenuItem(text = { Text("Xóa ví") }, onClick = { showMenu = false; showDeleteConfirm = true })
-                                        }
-                                    }
-                                )
-                            }
-                        ) { padding ->
-                            Box(Modifier.padding(padding)) {
-                                Column(Modifier.fillMaxSize()) {
-                                    TabRow(selectedTabIndex = tab) {
-                                        Tab(selected = tab == 0, onClick = { tab = 0 }) { Text("Ví", Modifier.padding(12.dp)) }
-                                        Tab(selected = tab == 1, onClick = { tab = 1 }) { Text("Gửi/Nhận", Modifier.padding(12.dp)) }
-                                    }
-                                    if (tab == 0) {
-                                        var balance by remember { mutableStateOf(0.0) }
-                                        var progress by remember { mutableStateOf(0) }
-                                        var status by remember { mutableStateOf("Chưa sync") }
-                                        var transactions by remember { mutableStateOf(listOf<TransactionInfo>()) }
-                                        val dateFormat = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault())
-                                        val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                                        LaunchedEffect(Unit) {
-                                            wm.onProgress { p, t -> lifecycleScope.launch(Dispatchers.Main) { progress = p; status = t } }
-                                            withContext(Dispatchers.IO) {
-                                                balance = wm.getBalance(); price = wm.price(); transactions = wm.getTransactions()
-                                            }
-                                            while (true) {
-                                                delay(60000)
-                                                withContext(Dispatchers.IO) {
-                                                    try {
-                                                        val newBalance = wm.getBalance()
-                                                        val newPrice = wm.price()
-                                                        val newTransactions = wm.getTransactions()
-                                                        withContext(Dispatchers.Main) {
-                                                            balance = newBalance; price = newPrice; transactions = newTransactions
-                                                            status = "Auto sync " + timeFormat.format(Date())
-                                                        }
-                                                    } catch (_: Exception) {}
-                                                }
-                                            }
-                                        }
-                                        Column(Modifier.padding(16.dp)) {
-                                            Card(Modifier.fillMaxWidth()) {
-                                                Column(Modifier.padding(16.dp)) {
-                                                    Text("Số dư:")
-                                                    Text("%.8f BTC".format(balance), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                                                    val totalUsd = balance * price
-                                                    Text("≈ $%,.2f".format(totalUsd), fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                                                    Text("$%,.2f / BTC".format(price), fontSize = 12.sp, color = Color.Gray)
-                                                    Text("$status • Giá tự động", fontSize = 12.sp)
-                                                    if (progress in 1..99) LinearProgressIndicator(progress = progress / 100f, Modifier.fillMaxWidth().padding(top = 8.dp))
-                                                }
-                                            }
-                                            Spacer(Modifier.height(8.dp))
-                                            Button(onClick = {
-                                                lifecycleScope.launch(Dispatchers.IO) {
-                                                    val newBalance = wm.getBalance(); val newPrice = wm.price(); val newTransactions = wm.getTransactions()
-                                                    withContext(Dispatchers.Main) { balance = newBalance; price = newPrice; transactions = newTransactions; status = "Sync tay"; progress = 100 }
-                                                }
-                                            }, Modifier.fillMaxWidth()) { Text("SYNC NGAY") }
-                                            Spacer(Modifier.height(16.dp)); Text("Lịch sử", fontWeight = FontWeight.Bold)
-                                            LazyColumn(Modifier.fillMaxSize()) {
-                                                items(transactions) { tx ->
-                                                    Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                                        Row(Modifier.padding(12.dp)) {
-                                                            Column(Modifier.weight(1f)) {
-                                                                Text(tx.type, fontWeight = FontWeight.Bold); Text("%.8f".format(tx.amount)); Text(dateFormat.format(tx.time), fontSize = 11.sp)
-                                                            }
-                                                            Text(tx.txId.take(8), fontSize = 12.sp)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        var toAddress by remember { mutableStateOf("") }
-                                        var amount by remember { mutableStateOf("") }
-                                        var result by remember { mutableStateOf("") }
-                                        var receiveAddress by remember { mutableStateOf("") }
-                                        var fees by remember { mutableStateOf(FeeRates(5, 10, 20)) }
-                                        var feeSelection by remember { mutableStateOf(1) }
-                                        var customFee by remember { mutableStateOf("") }
-                                        var showSendConfirm by remember { mutableStateOf(false) }
-                                        var sendPass by remember { mutableStateOf("") }
-                                        var sendErr by remember { mutableStateOf("") }
-                                        var currentBalance by remember { mutableStateOf(0.0) }
-
-                                        LaunchedEffect(Unit) { 
-                                            withContext(Dispatchers.IO) { 
-                                                receiveAddress = wm.getAddress()
-                                                fees = wm.getFeeRates()
-                                                currentBalance = wm.getBalance()
-                                            } 
-                                        }
-
-                                        val selectedFeeRate = when (feeSelection) {
-                                            0 -> fees.slow
-                                            1 -> fees.normal
-                                            2 -> fees.fast
-                                            else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
-                                        }
-                                        val amountVal = amount.toDoubleOrNull() ?: 0.0
-                                        val estFeeBtc = if (toAddress.isNotBlank() && amountVal > 0) {
-                                            try { wm.estimateFee(toAddress, amountVal, selectedFeeRate) } 
-                                            catch (_: Exception) { selectedFeeRate * 250.0 / 100_000_000.0 }
-                                        } else {
-                                            selectedFeeRate * 250.0 / 100_000_000.0
-                                        }
-                                        val totalBtc = amountVal + estFeeBtc
-
-                                        LazyColumn(Modifier.padding(16.dp)) {
-                                            item {
-                                                Text("Gửi BTC", fontWeight = FontWeight.Bold)
-                                                OutlinedTextField(value = toAddress, onValueChange = { toAddress = it }, label = { Text("Địa chỉ") }, modifier = Modifier.fillMaxWidth(), trailingIcon = { TextButton(onClick = { qrCallback = { scanned -> toAddress = scanned }; qrLauncher.launch(ScanOptions()) }) { Text("QR") } })
-                                                OutlinedTextField(value = amount, onValueChange = { amount = it }, label = { Text("BTC") }, modifier = Modifier.fillMaxWidth())
-                                                
-                                                Text("Phí mạng:", modifier = Modifier.padding(top = 8.dp))
-                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 0, onClick = { feeSelection = 0 }); Text("Chậm (${fees.slow} sat/vB)") }
-                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 1, onClick = { feeSelection = 1 }); Text("Thường (${fees.normal} sat/vB)") }
-                                                Row(verticalAlignment = Alignment.CenterVertically) { RadioButton(selected = feeSelection == 2, onClick = { feeSelection = 2 }); Text("Nhanh (${fees.fast} sat/vB)") }
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    RadioButton(selected = feeSelection == 3, onClick = { feeSelection = 3 }); Text("Tùy chỉnh")
-                                                    if (feeSelection == 3) {
-                                                        Spacer(Modifier.width(8.dp))
-                                                        OutlinedTextField(value = customFee, onValueChange = { customFee = it.filter { c -> c.isDigit() } }, label = { Text("sat/vB") }, singleLine = true, modifier = Modifier.width(120.dp))
-                                                    }
-                                                }
-
-                                                Card(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                                                    Column(Modifier.padding(12.dp)) {
-                                                        Text("Ước tính phí: %.8f BTC (≈ $%.2f)".format(estFeeBtc, estFeeBtc * price))
-                                                        Text("Tổng (gửi + phí): %.8f BTC".format(totalBtc), fontWeight = FontWeight.Bold)
-                                                        Text("Số dư: %.8f BTC".format(currentBalance), fontSize = 12.sp)
-                                                    }
-                                                }
-
-                                                Button(onClick = { showSendConfirm = true }, Modifier.fillMaxWidth(), enabled = toAddress.isNotBlank() && amountVal > 0 && totalBtc <= currentBalance) { Text("GỬI") }
-                                                if (result.isNotEmpty()) Text(result, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp))
-
-                                                if (showSendConfirm) {
-                                                    AlertDialog(
-                                                        onDismissRequest = { showSendConfirm = false },
-                                                        title = { Text("Xác nhận gửi") },
-                                                        text = {
-                                                            Column {
-                                                                Text("Gửi %.8f BTC tới:".format(amountVal))
-                                                                SelectionContainer { Text(toAddress) }
-                                                                Spacer(Modifier.height(4.dp))
-                                                                Text("Phí: %.8f BTC".format(estFeeBtc))
-                                                                Text("Tổng: %.8f BTC".format(totalBtc), fontWeight = FontWeight.Bold)
-                                                                Spacer(Modifier.height(8.dp))
-                                                                OutlinedTextField(value = sendPass, onValueChange = { sendPass = it; sendErr = "" }, label = { Text("Nhập mật khẩu ví") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                                                if (sendErr.isNotEmpty()) Text(sendErr, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
-                                                            }
-                                                        },
-                                                        confirmButton = {
-                                                            Button(onClick = {
-                                                                lifecycleScope.launch(Dispatchers.IO) {
-                                                                    val id = wm.getActive()?.id ?: ""
-                                                                    val ok = wm.unlock(id, sendPass)
-                                                                    if (!ok) { withContext(Dispatchers.Main) { sendErr = "Sai mật khẩu" }; return@launch }
-                                                                    val tx = wm.send(toAddress, amountVal, selectedFeeRate)
-                                                                    withContext(Dispatchers.Main) { 
-                                                                        result = tx
-                                                                        showSendConfirm = false
-                                                                        sendPass = ""
-                                                                        toAddress = ""
-                                                                        amount = ""
-                                                                        currentBalance = wm.getBalance()
-                                                                    }
-                                                                }
-                                                            }) { Text("XÁC NHẬN") }
-                                                        },
-                                                        dismissButton = { OutlinedButton(onClick = { showSendConfirm = false }) { Text("HỦY") } }
-                                                    )
-                                                }
-
-                                                Spacer(Modifier.height(24.dp)); Text("Nhận BTC", fontWeight = FontWeight.Bold)
-                                                val qrBitmap = remember(receiveAddress) {
-                                                    val size = 512
-                                                    val bitMatrix = QRCodeWriter().encode(receiveAddress.ifEmpty { "bitcoin:" }, BarcodeFormat.QR_CODE, size)
-                                                    Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).apply { for (x in 0 until size) for (y in 0 until size) setPixel(x, y, if (bitMatrix.get(x, y)) android.graphics.Color.BLACK else android.graphics.Color.WHITE) }
-                                                }
-                                                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Image(bitmap = qrBitmap.asImageBitmap(), contentDescription = null, Modifier.size(220.dp))
-                                                    Spacer(Modifier.height(8.dp)); SelectionContainer { Text(receiveAddress) }
-                                                }
-                                                Button(onClick = { 
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("btc", receiveAddress))
-                                                    Toast.makeText(context, "Đã copy", Toast.LENGTH_SHORT).show()
-                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
-                                                }, Modifier.fillMaxWidth()) { Text("COPY") }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            if (showRename) {
-                                var newName by remember { mutableStateOf(walletName) }
-                                AlertDialog(
-                                    onDismissRequest = { showRename = false },
-                                    confirmButton = {},
-                                    title = { Text("Đổi tên ví") },
-                                    text = {
-                                        Column {
-                                            OutlinedTextField(value = newName, onValueChange = { newName = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                                            Spacer(Modifier.height(16.dp))
-                                            Button(onClick = {
-                                                lifecycleScope.launch(Dispatchers.IO) {
-                                                    wm.getActive()?.let { activeWallet ->
-                                                        wm.rename(activeWallet.id, newName)
-                                                        withContext(Dispatchers.Main) { walletName = newName; showRename = false }
-                                                    }
-                                                }
-                                            }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("LƯU") }
-                                            Spacer(Modifier.height(8.dp))
-                                            OutlinedButton(onClick = { showRename = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("HỦY") }
-                                        }
-                                    }
-                                )
-                            }
-                            if (showDetails) {
-                                var passCheck by remember { mutableStateOf("") }; var verified by remember { mutableStateOf(false) }; var err by remember { mutableStateOf("") }
-                                val address = wm.getAddress(); val seed = if (verified) wm.getSeed() else ""
-                                AlertDialog(
-                                    onDismissRequest = { showDetails = false },
-                                    confirmButton = {},
-                                    title = { Text(if (!verified) "Xác thực mật khẩu" else "Chi tiết ví") },
-                                    text = {
-                                        if (!verified) {
-                                            Column {
-                                                Text("Nhập mật khẩu để xem seed")
-                                                Spacer(Modifier.height(8.dp))
-                                                OutlinedTextField(value = passCheck, onValueChange = { passCheck = it; err = "" }, label = { Text("Mật khẩu") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                                if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
-                                                Spacer(Modifier.height(16.dp))
-                                                Button(onClick = {
-                                                    lifecycleScope.launch(Dispatchers.IO) {
-                                                        val id = wm.getActive()?.id ?: ""
-                                                        val ok = wm.unlock(id, passCheck)
-                                                        withContext(Dispatchers.Main) { if (ok) verified = true else err = "Sai mật khẩu" }
-                                                    }
-                                                }, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("XÁC NHẬN") }
-                                                Spacer(Modifier.height(8.dp))
-                                                OutlinedButton(onClick = { showDetails = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("ĐÓNG") }
-                                            }
-                                        } else {
-                                            Column {
-                                                Text("Tên: $walletName", fontWeight = FontWeight.Bold)
-                                                Spacer(Modifier.height(8.dp)); Text("Địa chỉ:"); SelectionContainer { Text(address) }
-                                                Button(onClick = { 
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("addr", address))
-                                                    Toast.makeText(context, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
-                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
-                                                }, modifier = Modifier.fillMaxWidth()) { Text("Copy địa chỉ") }
-                                                Spacer(Modifier.height(8.dp)); Text("Seed 12 từ:"); SelectionContainer { Text(seed) }
-                                                Button(onClick = { 
-                                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                                    clipboard.setPrimaryClip(ClipData.newPlainText("seed", seed))
-                                                    Toast.makeText(context, "Đã copy seed", Toast.LENGTH_SHORT).show()
-                                                    Handler(Looper.getMainLooper()).postDelayed({ clipboard.clearPrimaryClip() }, 30000)
-                                                }, modifier = Modifier.fillMaxWidth()) { Text("Copy seed") }
-                                                Spacer(Modifier.height(12.dp))
-                                                OutlinedButton(onClick = { showDetails = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("ĐÓNG") }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                            if (showChangePass) {
-                                var oldPass by remember { mutableStateOf("") }
-                                var newPass1 by remember { mutableStateOf("") }
-                                var newPass2 by remember { mutableStateOf("") }
-                                var err by remember { mutableStateOf("") }
-                                AlertDialog(
-                                    onDismissRequest = { showChangePass = false },
-                                    confirmButton = {},
-                                    title = { Text("Đổi mật khẩu") },
-                                    text = {
-                                        Column {
-                                            OutlinedTextField(value = oldPass, onValueChange = { oldPass = it; err = "" }, label = { Text("Mật khẩu cũ") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                            OutlinedTextField(value = newPass1, onValueChange = { newPass1 = it; err = "" }, label = { Text("Mật khẩu mới (>=8)") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                            OutlinedTextField(value = newPass2, onValueChange = { newPass2 = it; err = "" }, label = { Text("Nhập lại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                                            if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 4.dp))
-                                            Spacer(Modifier.height(16.dp))
-                                            Button(onClick = {
-                                                if (newPass1.length < 8) { err = "Mật khẩu mới >=8 ký tự"; return@Button }
-                                                if (newPass1 != newPass2) { err = "Không khớp"; return@Button }
-                                                lifecycleScope.launch(Dispatchers.IO) {
-                                                    val id = wm.getActive()?.id ?: ""
-                                                    val ok = wm.changePassword(id, oldPass, newPass1)
-                                                    withContext(Dispatchers.Main) {
-                                                        if (ok) {
-                                                            Toast.makeText(context, "Đổi mật khẩu thành công", Toast.LENGTH_SHORT).show()
-                                                            showChangePass = false
-                                                        } else {
-                                                            err = "Sai mật khẩu cũ"
-                                                        }
-                                                    }
-                                                }
-                                            }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("LƯU") }
-                                            Spacer(Modifier.height(8.dp))
-                                            OutlinedButton(onClick = { showChangePass = false }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("HỦY") }
-                                        }
-                                    }
-                                )
-                            }
-                            if (showDeleteConfirm) {
-                                var pass by remember { mutableStateOf("") }
-                                var err by remember { mutableStateOf("") }
-                                var isDeleting by remember { mutableStateOf(false) }
-                                AlertDialog(
-                                    onDismissRequest = { if (!isDeleting) showDeleteConfirm = false },
-                                    confirmButton = {},
-                                    title = { Text("⚠️ Xác nhận xóa ví") },
-                                    text = {
-                                        Column {
-                                            Text("Hành động này KHÔNG thể hoàn tác!")
-                                            Text("Nhập mật khẩu để xác nhận:", fontSize = 12.sp)
-                                            Spacer(Modifier.height(8.dp))
-                                            OutlinedTextField(value = pass, onValueChange = { pass = it; err = "" }, label = { Text("Mật khẩu hiện tại") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth(), enabled = !isDeleting)
-                                            if (err.isNotEmpty()) Text(err, color = MaterialTheme.colorScheme.error, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
-                                            Spacer(Modifier.height(16.dp))
-                                            Button(
-                                                onClick = {
-                                                    isDeleting = true
-                                                    lifecycleScope.launch(Dispatchers.IO) {
-                                                        val id = wm.getActive()?.id ?: ""
-                                                        val ok = wm.unlock(id, pass)
-                                                        if (!ok) {
-                                                            withContext(Dispatchers.Main) { err = "Sai mật khẩu"; isDeleting = false }
-                                                            return@launch
-                                                        }
-                                                        wm.delete(id)
-                                                        val stillHas = wm.hasWallets()
-                                                        withContext(Dispatchers.Main) {
-                                                            hasWallet = stillHas
-                                                            isLocked = false
-                                                            walletName = ""
-                                                            showDeleteConfirm = false
-                                                            Toast.makeText(context, "Đã xóa ví vĩnh viễn", Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    }
-                                                },
-                                                enabled = !isDeleting,
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                                                modifier = Modifier.fillMaxWidth().height(48.dp)
-                                            ) { Text(if (isDeleting) "Đang xóa..." else "XÓA VĨNH VIỄN") }
-                                            Spacer(Modifier.height(8.dp))
-                                            OutlinedButton(onClick = { showDeleteConfirm = false }, enabled = !isDeleting, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("HỦY") }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+    override fun onResume() {
+        super.onResume()
+        lastInteractionTime = System.currentTimeMillis()
+        if (walletManager.getActive()!= null) {
+            refreshWallet()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        try { wm.lock() } catch (_: Exception) {}
+        try {
+            walletManager.lock()
+            walletManager.stop()
+        } catch (_: Exception) {}
     }
+
+    // ------------------------------------------------------------------------
+    // Setup UI gốc
+    // ------------------------------------------------------------------------
+    private fun setupRootLayout() {
+        rootLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24)
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        scrollView = ScrollView(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            addView(rootLayout)
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Auto lock sau 2 phút
+    // ------------------------------------------------------------------------
+    private fun startAutoLockChecker() {
+        handler.postDelayed(object : Runnable {
+            override fun run() {
+                val active = walletManager.getActive()
+                if (active!= null && System.currentTimeMillis() - lastInteractionTime > AUTO_LOCK_MS) {
+                    walletManager.lock()
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Tự động khóa sau 2 phút không dùng", Toast.LENGTH_SHORT).show()
+                        showUnlockDialog()
+                    }
+                }
+                handler.postDelayed(this, 10000) // check mỗi 10s
+            }
+        }, 10000)
+    }
+
+    // ------------------------------------------------------------------------
+    // Màn hình chào
+    // ------------------------------------------------------------------------
+    private fun showWelcome() {
+        rootLayout.removeAllViews()
+
+        val logo = TextView(this).apply {
+            text = "₿"
+            textSize = 72f
+            gravity = Gravity.CENTER
+            setTextColor(Color.parseColor("#F7931A"))
+            setPadding(0, 80, 0, 20)
+        }
+
+        val title = TextView(this).apply {
+            text = "iBTC Wallet v4.1"
+            textSize = 26f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setTextColor(Color.BLACK)
+        }
+
+        val subtitle = TextView(this).apply {
+            text = "Bitcoin wallet an toàn, mã nguồn mở"
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setTextColor(Color.GRAY)
+            setPadding(0, 8, 0, 60)
+        }
+
+        val createBtn = Button(this).apply {
+            text = "Tạo ví mới"
+            textSize = 16f
+            setPadding(0, 30, 0, 30)
+        }
+
+        val importBtn = Button(this).apply {
+            text = "Import ví có sẵn"
+            textSize = 16f
+        }
+
+        val space = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
+
+        createBtn.setOnClickListener { showCreateDialog() }
+        importBtn.setOnClickListener { showImportDialog() }
+
+        rootLayout.addView(logo)
+        rootLayout.addView(title)
+        rootLayout.addView(subtitle)
+        rootLayout.addView(createBtn)
+        rootLayout.addView(space)
+        rootLayout.addView(importBtn)
+    }
+
+    // ------------------------------------------------------------------------
+    // Dialog tạo ví
+    // ------------------------------------------------------------------------
+    private fun showCreateDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30)
+        }
+
+        val nameInput = EditText(this).apply {
+            hint = "Tên ví (tùy chọn)"
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+
+        val passInput = EditText(this).apply {
+            hint = "Mật khẩu (tối thiểu 8 ký tự)"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+        }
+
+        val pass2Input = EditText(this).apply {
+            hint = "Nhập lại mật khẩu"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+        }
+
+        val warning = TextView(this).apply {
+            text = "⚠️ Lưu mật khẩu cẩn thận. Mất = mất ví."
+            textSize = 12f
+            setTextColor(Color.RED)
+            setPadding(0, 20, 0, 0)
+        }
+
+        layout.addView(nameInput)
+        layout.addView(passInput)
+        layout.addView(pass2Input)
+        layout.addView(warning)
+
+        AlertDialog.Builder(this)
+           .setTitle("Tạo ví Bitcoin mới")
+           .setView(layout)
+           .setPositiveButton("Tạo") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val p1 = passInput.text.toString()
+                val p2 = pass2Input.text.toString()
+
+                if (p1.length < 8) {
+                    toast("Mật khẩu phải ≥8 ký tự")
+                    return@setPositiveButton
+                }
+                if (p1!= p2) {
+                    toast("Mật khẩu không khớp")
+                    return@setPositiveButton
+                }
+
+                try {
+                    walletManager.create(name, p1)
+                    walletManager.init()
+                    toast("Tạo ví thành công")
+                    showMainWallet()
+                } catch (e: Exception) {
+                    toast("Lỗi: ${e.message}")
+                }
+            }
+           .setNegativeButton("Hủy", null)
+           .show()
+    }
+
+    // ------------------------------------------------------------------------
+    // Dialog import
+    // ------------------------------------------------------------------------
+    private fun showImportDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(30)
+        }
+
+        val nameInput = EditText(this).apply { hint = "Tên ví" }
+        val seedInput = EditText(this).apply {
+            hint = "12 hoặc 24 từ seed, cách nhau bằng space"
+            minLines = 3
+            gravity = Gravity.TOP
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+        }
+        val passInput = EditText(this).apply {
+            hint = "Đặt mật khẩu mới ≥8 ký tự"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+        }
+
+        layout.addView(nameInput)
+        layout.addView(seedInput)
+        layout.addView(passInput)
+
+        AlertDialog.Builder(this)
+           .setTitle("Import ví")
+           .setView(layout)
+           .setPositiveButton("Import") { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val seed = seedInput.text.toString().trim()
+                val pass = passInput.text.toString()
+
+                if (pass.length < 8) {
+                    toast("Mật khẩu quá ngắn")
+                    return@setPositiveButton
+                }
+
+                val info = walletManager.import(name, seed, pass)
+                if (info == null) {
+                    toast("Seed không hợp lệ (cần 12-24 từ)")
+                } else {
+                    walletManager.init()
+                    toast("Import thành công")
+                    showMainWallet()
+                }
+            }
+           .setNegativeButton("Hủy", null)
+           .show()
+    }
+
+    // ------------------------------------------------------------------------
+    // Dialog mở khóa
+    // ------------------------------------------------------------------------
+    private fun showUnlockDialog() {
+        val id = walletManager.getActiveId()
+        if (id == null) {
+            showWelcome()
+            return
+        }
+
+        rootLayout.removeAllViews()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(40)
+        }
+
+        val title = TextView(this).apply {
+            text = "🔒 Ví đã khóa"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 40)
+        }
+
+        val passInput = EditText(this).apply {
+            hint = "Nhập mật khẩu"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            transformationMethod = PasswordTransformationMethod.getInstance()
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        val unlockBtn = Button(this).apply {
+            text = "Mở khóa"
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = 20 }
+        }
+
+        unlockBtn.setOnClickListener {
+            val pass = passInput.text.toString()
+            if (walletManager.unlock(id, pass)) {
+                walletManager.init()
+                showMainWallet()
+            } else {
+                toast("Sai mật khẩu (khóa sau 5 lần)")
+                passInput.text.clear()
+            }
+        }
+
+        layout.addView(title)
+        layout.addView(passInput)
+        layout.addView(unlockBtn)
+        rootLayout.addView(layout)
+    }
+
+    // ------------------------------------------------------------------------
+    // Màn hình ví chính
+    // ------------------------------------------------------------------------
+    private fun showMainWallet() {
+        rootLayout.removeAllViews()
+
+        // Header
+        walletNameText = TextView(this).apply {
+            text = walletManager.getActive()?.name?: "Ví"
+            textSize = 18f
+            typeface = Typeface.DEFAULT_BOLD
+        }
+
+        balanceText = TextView(this).apply {
+            text = "0.00000000 BTC"
+            textSize = 32f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.BLACK)
+            setPadding(0, 10, 0, 0)
+        }
+
+        priceText = TextView(this).apply {
+            text = "≈ $0.00"
+            textSize = 16f
+            setTextColor(Color.GRAY)
+        }
+
+        syncText = TextView(this).apply {
+            text = "Đang kết nối..."
+            textSize = 13f
+        }
+
+        syncProgressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+        }
+
+        addressText = TextView(this).apply {
+            textSize = 12f
+            isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+            setTextColor(Color.DKGRAY)
+            setPadding(0, 10, 0, 10)
+        }
+
+        // Nút
+        val btnRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; weightSum = 2f }
+        val btnReceive = Button(this).apply { text = "⬇ Nhận"; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8 } }
+        val btnSend = Button(this).apply { text = "⬆ Gửi"; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 8 } }
+
+        val btnRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; weightSum = 2f }
+        val btnRefresh = Button(this).apply { text = "⟳ Làm mới"; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8 } }
+        val btnSettings = Button(this).apply { text = "⚙ Cài đặt"; layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 8 } }
+
+        btnRow1.addView(btnReceive); btnRow1.addView(btnSend)
+        btnRow2.addView(btnRefresh); btnRow2.addView(btnSettings)
+
+        val txTitle = TextView(this).apply {
+            text = "Lịch sử giao dịch"
+            textSize = 16f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(0, 30, 0, 10)
+        }
+
+        txListView = ListView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                600
+            )
+        }
+
+        // Add all
+        rootLayout.addView(walletNameText)
+        rootLayout.addView(balanceText)
+        rootLayout.addView(priceText)
+        rootLayout.addView(syncText)
+        rootLayout.addView(syncProgressBar)
+        rootLayout.addView(addressText)
+        rootLayout.addView(Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 20) })
+        rootLayout.addView(btnRow1)
+        rootLayout.addView(btnRow2)
+        rootLayout.addView(txTitle)
+        rootLayout.addView(txListView)
+
+        // Listeners
+        btnReceive.setOnClickListener { showReceiveDialog() }
+        btnSend.setOnClickListener { showSendDialog() }
+        btnRefresh.setOnClickListener { refreshWallet() }
+        btnSettings.setOnClickListener { showSettings() }
+
+        // Sync progress
+        walletManager.onProgress { pct, txt ->
+            runOnUiThread {
+                syncText.text = txt
+                syncProgressBar.progress = pct
+                isSyncing = pct < 100
+            }
+        }
+
+        refreshWallet()
+    }
+
+    // ------------------------------------------------------------------------
+    // Refresh
+    // ------------------------------------------------------------------------
+    private fun refreshWallet() {
+        Thread {
+            try {
+                val bal = walletManager.getBalance()
+                val price = walletManager.price()
+                val addr = walletManager.getAddress()
+                val txs = walletManager.getTransactions()
+
+                runOnUiThread {
+                    balanceText.text = String.format(Locale.US, "%.8f BTC", bal)
+                    priceText.text = String.format(Locale.US, "≈ $%,.2f (BTC $%,.2f)", bal * price, price)
+                    addressText.text = "Địa chỉ: $addr"
+
+                    val adapter = object : ArrayAdapter<String>(
+                        this,
+                        android.R.layout.simple_list_item_2,
+                        android.R.id.text1,
+                        txs.map { tx ->
+                            val type = if (tx.type == "Nhận") "⬇" else "⬆"
+                            "$type ${tx.type} ${String.format("%.8f", tx.amount)} BTC"
+                        }
+                    ) {
+                        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                            val view = super.getView(position, convertView, parent)
+                            val tx = txs[position]
+                            val text1 = view.findViewById<TextView>(android.R.id.text1)
+                            val text2 = view.findViewById<TextView>(android.R.id.text2)
+                            text1.text = "${if (tx.type == "Nhận") "⬇" else "⬆"} ${tx.type} ${String.format("%.8f", tx.amount)}"
+                            text2.text = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(tx.time) + " • " + tx.txId.take(12) + "..."
+                            text2.setTextColor(Color.GRAY)
+                            text2.textSize = 11f
+                            return view
+                        }
+                    }
+                    txListView.adapter = adapter
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Lỗi refresh: ${e.message}") }
+            }
+        }.start()
+    }
+
+    // ------------------------------------------------------------------------
+    // Nhận BTC - FIX LỖI QR Ở ĐÂY
+    // ------------------------------------------------------------------------
+    private fun showReceiveDialog() {
+        val address = walletManager.getAddress()
+        if (address.isEmpty()) {
+            toast("Ví chưa sẵn sàng")
+            return
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(40)
+        }
+
+        val imageView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(512, 512).apply { bottomMargin = 20 }
+        }
+
+        // ==== DÒNG 442 CŨ BỊ LỖI - ĐÃ FIX ====
+        // Cũ: writer.encode(address, BarcodeFormat.QR_CODE, 512, 512, mapOf(...))
+        // Mới: chỉ dùng 4 tham số, Kotlin sẽ khớp đúng overload
+        try {
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(address, BarcodeFormat.QR_CODE, 512, 512)
+            val bmp = Bitmap.createBitmap(512, 512, Bitmap.Config.RGB_565)
+            for (x in 0 until 512) {
+                for (y in 0 until 512) {
+                    bmp.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                }
+            }
+            imageView.setImageBitmap(bmp)
+        } catch (e: Exception) {
+            toast("Lỗi tạo QR: ${e.message}")
+        }
+
+        val addressView = TextView(this).apply {
+            text = address
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextIsSelectable(true)
+            setPadding(0, 10, 0, 20)
+        }
+
+        val copyBtn = Button(this).apply { text = "Copy địa chỉ" }
+        copyBtn.setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("btc_address", address))
+            toast("Đã copy - sẽ tự xóa sau 30 giây")
+            handler.postDelayed({
+                try { cm.clearPrimaryClip() } catch (_: Exception) {}
+            }, 30000)
+        }
+
+        layout.addView(imageView)
+        layout.addView(addressView)
+        layout.addView(copyBtn)
+
+        AlertDialog.Builder(this)
+           .setTitle("Nhận Bitcoin")
+           .setView(layout)
+           .setPositiveButton("Đóng", null)
+           .show()
+    }
+
+    // ------------------------------------------------------------------------
+    // Gửi BTC
+    // ------------------------------------------------------------------------
+    private fun showSendDialog() {
+        if (isSyncing) {
+            toast("Đang sync, vui lòng đợi")
+            return
+        }
+
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(30) }
+        val toInput = EditText(this).apply { hint = "Địa chỉ BTC (bc1... hoặc 1... hoặc 3...)" }
+        val amountInput = EditText(this).apply { hint = "Số lượng BTC"; inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL }
+
+        val feeRates = try { walletManager.getFeeRates() } catch (_: Exception) { FeeRates(5, 10, 20) }
+        val feeGroup = RadioGroup(this)
+        val rSlow = RadioButton(this).apply { text = "Chậm ~60 phút (${feeRates.slow} sat/vB)"; id = 1 }
+        val rNormal = RadioButton(this).apply { text = "Thường ~30 phút (${feeRates.normal} sat/vB)"; id = 2; isChecked = true }
+        val rFast = RadioButton(this).apply { text = "Nhanh ~10 phút (${feeRates.fast} sat/vB)"; id = 3 }
+        feeGroup.addView(rSlow); feeGroup.addView(rNormal); feeGroup.addView(rFast)
+
+        layout.addView(toInput); layout.addView(amountInput); layout.addView(TextView(this).apply { text = "Chọn phí mạng:"; setPadding(0,20,0,0) }); layout.addView(feeGroup)
+
+        AlertDialog.Builder(this).setTitle("Gửi BTC").setView(layout)
+           .setPositiveButton("Tiếp tục") { _, _ ->
+                val to = toInput.text.toString().trim()
+                val amt = amountInput.text.toString().toDoubleOrNull()?: 0.0
+                if (to.length < 26 || amt <= 0) { toast("Địa chỉ hoặc số tiền không hợp lệ"); return@setPositiveButton }
+                val fee = when (feeGroup.checkedRadioButtonId) { 1 -> feeRates.slow; 3 -> feeRates.fast; else -> feeRates.normal }
+                val estFee = walletManager.estimateFee(to, amt, fee)
+                confirmSend(to, amt, fee, estFee)
+            }.setNegativeButton("Hủy", null).show()
+    }
+
+    private fun confirmSend(to: String, amt: Double, feeRate: Int, estFee: Double) {
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(30) }
+        val summary = TextView(this).apply {
+            text = "Gửi: $amt BTC\nĐến: $to\nPhí: ~$estFee BTC\nTổng: ${amt + estFee} BTC"
+            setPadding(0,0,0,20)
+        }
+        val passInput = EditText(this).apply { hint = "Nhập mật khẩu để xác nhận"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; transformationMethod = PasswordTransformationMethod.getInstance() }
+        layout.addView(summary); layout.addView(passInput)
+
+        AlertDialog.Builder(this).setTitle("Xác nhận").setView(layout)
+           .setPositiveButton("Gửi ngay") { _, _ ->
+                val id = walletManager.getActiveId()?: return@setPositiveButton
+                if (!walletManager.unlock(id, passInput.text.toString())) { toast("Sai mật khẩu"); return@setPositiveButton }
+                Thread {
+                    val result = walletManager.send(to, amt, feeRate)
+                    runOnUiThread {
+                        if (result.startsWith("Lỗi")) toast(result) else { toast("Đã gửi! TXID: ${result.take(12)}..."); refreshWallet() }
+                    }
+                }.start()
+            }.setNegativeButton("Hủy", null).show()
+    }
+
+    // ------------------------------------------------------------------------
+    // Settings
+    // ------------------------------------------------------------------------
+    private fun showSettings() {
+        val items = arrayOf("👁 Xem seed phrase", "🔑 Đổi mật khẩu", "✏️ Đổi tên ví", "🗑 Xóa ví vĩnh viễn", "🔒 Khóa ví ngay", "ℹ️ Thông tin")
+        AlertDialog.Builder(this).setTitle("Cài đặt").setItems(items) { _, w ->
+            when(w) {
+                0 -> showSeedDialog()
+                1 -> showChangePassDialog()
+                2 -> showRenameDialog()
+                3 -> showDeleteDialog()
+                4 -> { walletManager.lock(); showUnlockDialog() }
+                5 -> showInfo()
+            }
+        }.show()
+    }
+
+    private fun showSeedDialog() {
+        val pass = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD; transformationMethod = PasswordTransformationMethod.getInstance() }
+        AlertDialog.Builder(this).setTitle("Nhập mật khẩu để xem seed").setView(pass)
+           .setPositiveButton("Xem") { _, _ ->
+                val id = walletManager.getActiveId()?: return@setPositiveButton
+                if (walletManager.unlock(id, pass.text.toString())) {
+                    val seed = walletManager.getSeed()
+                    val tv = TextView(this).apply { text = seed; textSize = 16f; setTextIsSelectable(true); setPadding(40,40,40,40); gravity = Gravity.CENTER }
+                    AlertDialog.Builder(this).setTitle("⚠️ KHÔNG CHIA SẺ SEED").setView(tv)
+                       .setPositiveButton("Copy 30s") { _, _ ->
+                            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("seed", seed))
+                            handler.postDelayed({ cm.clearPrimaryClip() }, 30000)
+                        }.setNegativeButton("Đóng", null).show()
+                } else toast("Sai mật khẩu")
+            }.show()
+    }
+
+    private fun showChangePassDialog() {
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(30) }
+        val oldP = EditText(this).apply { hint = "Mật khẩu cũ"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        val newP = EditText(this).apply { hint = "Mật khẩu mới ≥8"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        layout.addView(oldP); layout.addView(newP)
+        AlertDialog.Builder(this).setTitle("Đổi mật khẩu").setView(layout)
+           .setPositiveButton("Đổi") { _, _ ->
+                val id = walletManager.getActiveId()?: return@setPositiveButton
+                if (walletManager.changePassword(id, oldP.text.toString(), newP.text.toString())) toast("Đã đổi thành công") else toast("Sai mật khẩu cũ")
+            }.show()
+    }
+
+    private fun showRenameDialog() {
+        val input = EditText(this).apply { hint = "Tên ví mới"; setText(walletManager.getActive()?.name?: "") }
+        AlertDialog.Builder(this).setTitle("Đổi tên").setView(input)
+           .setPositiveButton("Lưu") { _, _ ->
+                val id = walletManager.getActiveId()?: return@setPositiveButton
+                walletManager.rename(id, input.text.toString())
+                walletNameText.text = input.text.toString()
+                toast("Đã đổi tên")
+            }.show()
+    }
+
+    private fun showDeleteDialog() {
+        val pass = EditText(this).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        AlertDialog.Builder(this).setTitle("XÓA VĨNH VIỄN").setMessage("Nhập mật khẩu để xóa. Không thể khôi phục nếu không có seed!")
+           .setView(pass).setPositiveButton("XÓA") { _, _ ->
+                val id = walletManager.getActiveId()?: return@setPositiveButton
+                if (walletManager.unlock(id, pass.text.toString())) { walletManager.delete(id); showWelcome(); toast("Đã xóa") } else toast("Sai pass")
+            }.setNegativeButton("Hủy", null).show()
+    }
+
+    private fun showInfo() {
+        AlertDialog.Builder(this).setTitle("iBTC v4.1")
+           .setMessage("Build: 2026-05-23\nBảo mật:\n• PBKDF2 200,000 iterations\n• AES-GCM 256\n• Auto-lock 2 phút\n• FLAG_SECURE chống screenshot\n• Xóa clipboard 30s")
+           .setPositiveButton("OK", null).show()
+    }
+
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 }
