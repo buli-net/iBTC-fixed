@@ -1,102 +1,160 @@
 package net.buli.ibtc
 
 import android.content.Context
-import android.content.SharedPreferences
-import org.bitcoinj.core.*
+import org.bitcoinj.core.Address
+import org.bitcoinj.core.Coin
+import org.bitcoinj.core.listeners.DownloadProgressTracker
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.SendRequest
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.SecureRandom
-import java.util.*
+import java.util.Date
+
+data class WalletInfo(val id: String, val name: String, val seed: String)
+data class TransactionInfo(val txId: String, val amount: Double, val type: String, val time: Date)
+data class FeeRates(val slow: Int, val normal: Int, val fast: Int)
 
 class WalletManager(private val ctx: Context) {
     private val params = MainNetParams.get()
-    private val prefs: SharedPreferences = ctx.getSharedPreferences("btc_wallet", Context.MODE_PRIVATE)
     private var kit: WalletAppKit? = null
-    private var seed: String? = null
-    private var walletName: String? = null
+    private var active: WalletInfo? = null
+    private val prefs = ctx.getSharedPreferences("wallets", Context.MODE_PRIVATE)
+    private var lastPrice = prefs.getFloat("last_price", 67500f).toDouble()
 
-    fun hasWallets(): Boolean = prefs.getStringSet("wallets", emptySet())?.isNotEmpty() == true
-    fun isUnlocked(): Boolean = seed != null
-    fun getActiveName(): String = walletName ?: ""
+    fun hasWallets(): Boolean = prefs.all.keys.any { it.endsWith("_seed") }
+    fun getActive(): WalletInfo? = active
+    fun getActiveId(): String? = prefs.all.keys.firstOrNull { it.endsWith("_seed") }?.removeSuffix("_seed")
+    fun isLocked(): Boolean = active == null
 
-    fun unlock(password: String): Boolean {
+    // MỞ KHÓA
+    fun unlock(id: String, password: String): Boolean {
         return try {
-            val wallets = prefs.getStringSet("wallets", emptySet())!!
-            val name = prefs.getString("active", wallets.first())!!
-            val enc = prefs.getString("seed_$name", null)!!
-            seed = CryptoUtil.decrypt(enc, password)
-            walletName = name
+            val enc = prefs.getString("${id}_seed", "")!!
+            val seed = CryptoUtil.decrypt(enc, password)
+            val name = prefs.getString("${id}_name", "")!!
+            active = WalletInfo(id, name, seed)
             true
-        } catch (e: Exception) { false }
+        } catch (_: Exception) { false }
     }
 
-    fun create(name: String, password: String) {
-        val s = DeterministicSeed(SecureRandom(), 128, "", Utils.currentTimeSeconds())
-        val phrase = s.mnemonicCode!!.joinToString(" ")
-        val enc = CryptoUtil.encrypt(phrase, password)
-        prefs.edit().putString("seed_$name", enc).putStringSet("wallets", prefs.getStringSet("wallets", emptySet())!! + name).putString("active", name).apply()
-        seed = phrase; walletName = name
+    // TẠO VÍ CÓ PASS
+    fun create(name: String, password: String): WalletInfo {
+        val id = System.currentTimeMillis().toString()
+        val seed = DeterministicSeed(SecureRandom(), 128, "")
+        val mnemonic = seed.mnemonicCode!!.joinToString(" ")
+        val walletName = if (name.isBlank()) "Ví $id" else name
+        val enc = CryptoUtil.encrypt(mnemonic, password)
+        prefs.edit().putString("${id}_name", walletName).putString("${id}_seed", enc).apply()
+        val info = WalletInfo(id, walletName, mnemonic)
+        active = info
+        return info
     }
 
-    fun import(name: String, phrase: String, password: String): Boolean {
+    // IMPORT CÓ PASS
+    fun import(name: String, phrase: String, password: String): WalletInfo? {
         return try {
-            DeterministicSeed(phrase, null, "", Utils.currentTimeSeconds())
-            val enc = CryptoUtil.encrypt(phrase, password)
-            prefs.edit().putString("seed_$name", enc).putStringSet("wallets", prefs.getStringSet("wallets", emptySet())!! + name).putString("active", name).apply()
-            seed = phrase; walletName = name; true
-        } catch (e: Exception) { false }
+            val words = phrase.trim().split("\\s+".toRegex())
+            if (words.size < 12) return null
+            DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
+            val id = System.currentTimeMillis().toString()
+            val walletName = if (name.isBlank()) "Imported" else name
+            val mnemonic = words.joinToString(" ")
+            val enc = CryptoUtil.encrypt(mnemonic, password)
+            prefs.edit().putString("${id}_name", walletName).putString("${id}_seed", enc).apply()
+            val info = WalletInfo(id, walletName, mnemonic)
+            active = info
+            info
+        } catch (e: Exception) { null }
+    }
+
+    fun delete(id: String) {
+        try { stop() } catch (_: Exception) {}
+        prefs.edit().remove("${id}_name").remove("${id}_seed").apply()
+        File(ctx.filesDir, id).deleteRecursively()
+        if (active?.id == id) active = null
     }
 
     fun init() {
-        if (seed == null) return
-        val dir = File(ctx.filesDir, "wallets"); dir.mkdirs()
-        kit = WalletAppKit(params, dir, walletName).apply {
-            setAutoSave(true); setBlockingStartup(false)
-            if (!File(dir, "$walletName.wallet").exists()) {
-                restoreWalletFromSeed(DeterministicSeed(seed, null, "", Utils.currentTimeSeconds()))
-            }
+        val info = getActive() ?: return
+        if (kit != null) return
+        val seed = DeterministicSeed(info.seed.split(" "), null, "", 0L)
+        kit = WalletAppKit(params, File(ctx.filesDir, info.id), "ibtc").apply {
+            setBlockingStartup(false)
+            restoreWalletFromSeed(seed)
+            setDownloadListener(object : DownloadProgressTracker() {})
             startAsync()
+            awaitRunning()
         }
     }
 
+    fun stop() { try { kit?.stopAsync()?.awaitTerminated() } catch (_: Exception) {}; kit = null }
     fun onProgress(cb: (Int, String) -> Unit) {
-        kit?.setDownloadListener(object : org.bitcoinj.core.listeners.DownloadProgressTracker() {
+        kit?.setDownloadListener(object : DownloadProgressTracker() {
             override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
-                val p = pct.toInt()
-                cb(p, if (p < 100) "Đang đồng bộ $p%" else "Đã đồng bộ")
+                val percent = pct.toInt()
+                cb(percent, if (percent < 100) "Đang sync ${percent}%" else "Đã sync")
             }
-            override fun doneDownload() { cb(100, "Đã đồng bộ") }
+            override fun doneDownload() { cb(100, "Đã sync") }
         })
     }
-
-    fun getBalance(): Double = kit?.wallet()?.getBalance(Wallet.BalanceType.ESTIMATED)?.toBtc()?.toDouble() ?: 0.0
-    fun getAddress(): String = kit?.wallet()?.currentReceiveAddress()?.toString() ?: ""
+    fun getBalance(): Double = kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
+    fun getAddress(): String = kit?.wallet()?.currentReceiveAddress().toString()
+    fun getSeed(): String = active?.seed ?: ""
     fun getTransactions(): List<TransactionInfo> {
-        val w = kit?.wallet() ?: return emptyList()
-        return w.getTransactionsByTime().take(20).map {
-            val v = it.getValue(w).toBtc().toDouble()
-            TransactionInfo(if (v > 0) "Nhận" else "Gửi", kotlin.math.abs(v), it.updateTime, it.txId.toString())
-        }
+        val wallet = kit?.wallet() ?: return emptyList()
+        return wallet.getTransactionsByTime().map { tx ->
+            val value = tx.getValue(wallet).value.toDouble() / 1e8
+            TransactionInfo(tx.txId.toString(), kotlin.math.abs(value), if (value > 0) "Nhận" else "Gửi", tx.updateTime)
+        }.reversed()
     }
-
-    fun price(): Double {
+    fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
         return try {
-            val txt = java.net.URL("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT").readText()
-            Regex("\"price\":\"([0-9.]+)\"").find(txt)?.groupValues?.get(1)?.toDouble() ?: 0.0
-        } catch (e: Exception) { 0.0 }
-    }
-
-    fun send(to: String, amount: Double): String {
-        return try {
-            val w = kit?.wallet() ?: return "Chưa sẵn sàng"
-            val req = Wallet.SendRequest.to(Address.fromString(params, to), Coin.valueOf((amount * 1e8).toLong()))
-            req.feePerKb = Coin.valueOf(10000)
-            w.sendCoins(req).tx.txId.toString()
+            val wallet = kit!!.wallet()
+            val request = SendRequest.to(Address.fromString(params, to), Coin.parseCoin(amountBTC.toString()))
+            request.feePerKb = Coin.valueOf(feeRateSatVb.toLong() * 1000)
+            wallet.completeTx(request)
+            wallet.commitTx(request.tx)
+            kit!!.peerGroup().broadcastTransaction(request.tx).future().get()
+            request.tx.txId.toString()
         } catch (e: Exception) { "Lỗi: ${e.message}" }
     }
+    private fun httpGet(url: String): String {
+        return try {
+            val connection = URL(url).openConnection() as HttpURLConnection
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Android)")
+            connection.setRequestProperty("Accept", "application/json")
+            connection.connectTimeout = 7000
+            connection.readTimeout = 7000
+            connection.inputStream.bufferedReader().readText()
+        } catch (_: Exception) { "" }
+    }
+    fun price(): Double {
+        var text = httpGet("https://api.coinbase.com/v2/prices/BTC-USD/spot")
+        var price = Regex("\"amount\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        if (price == null) {
+            text = httpGet("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
+            price = Regex("\"price\":\"([\\d.]+)\"").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        }
+        if (price == null) {
+            text = httpGet("https://blockchain.info/ticker")
+            price = Regex("\"USD\"[^}]*\"last\":([\\d.]+)").find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        }
+        val result = price ?: lastPrice
+        if (result != lastPrice) {
+            lastPrice = result
+            prefs.edit().putFloat("last_price", result.toFloat()).apply()
+        }
+        return result
+    }
+    fun getFeeRates(): FeeRates {
+        val text = httpGet("https://mempool.space/api/v1/fees/recommended")
+        val slow = Regex("\"hourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 5
+        val normal = Regex("\"halfHourFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 10
+        val fast = Regex("\"fastestFee\":(\\d+)").find(text)?.groupValues?.get(1)?.toInt() ?: 20
+        return FeeRates(slow, normal, fast)
+    }
 }
-
-data class TransactionInfo(val type: String, val amount: Double, val time: Date, val hash: String)
