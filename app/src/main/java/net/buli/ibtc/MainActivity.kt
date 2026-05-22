@@ -326,7 +326,10 @@ class MainActivity : ComponentActivity() {
                                             0 -> fees.slow
                                             1 -> fees.normal
                                             2 -> fees.fast
-                                            else -> customFee.toIntOrNull() ?: fees.normal
+
+                                           
+else -> customFee.toIntOrNull()?.coerceIn(1, 1000) ?: fees.normal
+ //else -> customFee.toIntOrNull() ?: fees.normal
                                         }
                                         val estFeeBtc = selectedFeeRate * 250.0 / 100_000_000.0
                                         val amountVal = amount.toDoubleOrNull() ?: 0.0
