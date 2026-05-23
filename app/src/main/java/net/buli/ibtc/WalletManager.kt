@@ -4,93 +4,97 @@ import android.content.Context
 import org.bitcoinj.core.*
 import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
-import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
 import java.io.File
-import java.security.SecureRandom
 
+/**
+ * WalletManager - Quản lý toàn bộ ví Bitcoin mainnet thật
+ * Dùng thư viện bitcoinj 0.16.2
+ */
 class WalletManager(private val context: Context) {
+
+    // 1. Tham số mạng Bitcoin thật (mainnet)
     private val params: NetworkParameters = MainNetParams.get()
-    private var kit: WalletAppKit? = null
-    val wallet: Wallet? get() = kit?.wallet()
 
-    fun walletExists(name: String): Boolean = File(context.filesDir, "$name.wallet").exists()
+    // 2. Kit tự động quản lý blockchain, peer, wallet file
+    private lateinit var kit: WalletAppKit
 
-    fun createWallet(walletName: String, password: String): String {
-        val seed = DeterministicSeed(SecureRandom(), 128, "", System.currentTimeMillis()/1000)
-        kit = WalletAppKit(params, context.filesDir, walletName).apply {
-            setAutoSave(true)
-            setBlockingStartup(false)
-            startAsync()
-            awaitRunning()
-        }
-        kit?.wallet()?.let { w ->
-            w.keyChainSeed = seed
-            w.encrypt(password)
-        }
-        return seed.mnemonicCode!!.joinToString(" ")
-    }
+    // 3. Callback để MainActivity cập nhật UI
+    var onBalanceChanged: ((Coin) -> Unit)? = null
+    var onTransaction: ((Transaction) -> Unit)? = null
 
-    fun importWallet(walletName: String, seedPhrase: String, password: String) {
-        val seed = DeterministicSeed(seedPhrase, null, "", System.currentTimeMillis()/1000)
-        kit = WalletAppKit(params, context.filesDir, walletName).apply {
-            setAutoSave(true)
-            restoreWalletFromSeed(seed)
-            startAsync()
-            awaitRunning()
-        }
-        kit?.wallet()?.encrypt(password)
-    }
+    /**
+     * Khởi tạo ví - chạy lần đầu sẽ tạo file wallet
+     */
+    fun startWallet() {
+        // Thư mục lưu blockchain + wallet
+        val walletDir = File(context.filesDir, "ibtc-wallet")
+        if (!walletDir.exists()) walletDir.mkdirs()
 
-    fun unlock(walletName: String, password: String): Boolean {
-        return try {
-            kit = WalletAppKit(params, context.filesDir, walletName).apply {
-                setAutoSave(true)
-                startAsync()
-                awaitRunning()
+        // Tạo WalletAppKit - tự động download header, sync SPV
+        kit = object : WalletAppKit(params, walletDir, "ibtc-wallet") {
+            override fun onSetupCompleted() {
+                // Được gọi khi ví đã sẵn sàng
+                wallet().addCoinsReceivedEventListener(WalletCoinsReceivedEventListener { wallet, tx, prevBalance, newBalance ->
+                    onBalanceChanged?.invoke(wallet.balance)
+                    onTransaction?.invoke(tx)
+                })
+                wallet().addCoinsSentEventListener { wallet, tx, prevBalance, newBalance ->
+                    onBalanceChanged?.invoke(wallet.balance)
+                    onTransaction?.invoke(tx)
+                }
+                // Cập nhật balance lần đầu
+                onBalanceChanged?.invoke(wallet().balance)
             }
-            kit?.wallet()?.decrypt(password)
-            true
-        } catch (e: Exception) { false }
+        }
+
+        // Cấu hình: chỉ dùng SPV, không download full block (tiết kiệm data)
+        kit.setAutoSave(true)
+        kit.setBlockingStartup(false) // Không block UI
+        kit.startAsync()
+        kit.awaitRunning()
     }
 
-    fun getBalance(): String = kit?.wallet()?.balance?.toFriendlyString() ?: "0.00 BTC"
-
-    // Trả về địa chỉ Legacy 1... giống ảnh
+    /**
+     * Lấy địa chỉ nhận BTC hiện tại (dạng legacy 1...)
+     */
     fun getReceiveAddress(): String {
-        val w = kit?.wallet() ?: return ""
-        return w.currentReceiveAddress().toString()
+        val address = kit.wallet().currentReceiveAddress()
+        return address.toString()
     }
 
-    fun getTransactionHistory(): List<Transaction> = kit?.wallet()?.getTransactionsByTime()?.toList() ?: emptyList()
-
-    fun startSync(onProgress: (Int) -> Unit) {
-        kit?.setDownloadListener { blocksLeft, _, _, _ -> onProgress(blocksLeft) }
+    /**
+     * Lấy số dư hiện tại
+     */
+    fun getBalance(): Coin {
+        return kit.wallet().balance
     }
 
-    fun sendCoins(toAddress: String, amount: String, feeSatPerVb: Int): String {
-        val w = kit?.wallet() ?: throw IllegalStateException("Wallet not loaded")
-        val to = Address.fromString(params, toAddress)
-        val coins = Coin.parseCoin(amount)
-        val req = Wallet.SendRequest.to(to, coins)
-        req.feePerKb = Coin.valueOf(feeSatPerVb * 1000L)
-        w.completeTx(req)
-        w.commitTx(req.tx)
-        kit?.peerGroup()?.broadcastTransaction(req.tx)
-        return req.tx.txId.toString()
+    /**
+     * Gửi BTC - trả về tx hash nếu thành công
+     */
+    fun sendCoins(addressStr: String, amountBtc: Double): String {
+        val amount = Coin.parseCoin(amountBtc.toString())
+        val targetAddress = LegacyAddress.fromBase58(params, addressStr)
+        val result = kit.wallet().sendCoins(kit.peerGroup(), targetAddress, amount)
+        return result.broadcastComplete.get().txId.toString()
     }
 
-    fun changePassword(oldPass: String, newPass: String): Boolean {
-        return try {
-            wallet?.decrypt(oldPass)
-            wallet?.encrypt(newPass)
-            true
-        } catch (e: Exception) { false }
+    /**
+     * Lấy lịch sử giao dịch
+     */
+    fun getTransactions(): List<Transaction> {
+        return kit.wallet().getTransactionsByTime().toList()
     }
 
-    fun deleteWallet(name: String) {
-        kit?.stopAsync()
-        File(context.filesDir, "$name.wallet").delete()
-        File(context.filesDir, "$name.spvchain").delete()
+    /**
+     * Dừng ví khi app đóng
+     */
+    fun stopWallet() {
+        if (::kit.isInitialized) {
+            kit.stopAsync()
+            kit.awaitTerminated()
+        }
     }
 }
