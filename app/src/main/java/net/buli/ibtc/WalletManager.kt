@@ -7,78 +7,90 @@ import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
 import java.io.File
+import java.security.SecureRandom
 
 class WalletManager(private val context: Context) {
-
     private val params: NetworkParameters = MainNetParams.get()
     private var kit: WalletAppKit? = null
+    val wallet: Wallet? get() = kit?.wallet()
 
-    val wallet: Wallet?
-        get() = kit?.wallet()
+    fun walletExists(name: String): Boolean = File(context.filesDir, "$name.wallet").exists()
 
-    fun start() {
-        val walletDir = File(context.filesDir, "ibtc-wallet")
-        if (!walletDir.exists()) walletDir.mkdirs()
-        
-        kit = object : WalletAppKit(params, walletDir, "ibtc") {
-            override fun onSetupCompleted() {
-                wallet()?.allowSpendingUnconfirmedTransactions()
-            }
-        }.setBlockingStartup(false).setAutoSave(true)
-        
-        kit?.startAsync()
-        kit?.awaitRunning()
-    }
-
-    fun createNewWallet(): List<String> {
-        start()
-        val seed = wallet?.keyChainSeed ?: return emptyList()
-        return seed.mnemonicCode ?: emptyList()
-    }
-
-    fun restoreWallet(mnemonic: List<String>) {
-        val walletDir = File(context.filesDir, "ibtc-wallet")
-        walletDir.deleteRecursively()
-        
-        kit = object : WalletAppKit(params, walletDir, "ibtc") {
-            override fun onSetupCompleted() {
-                wallet()?.allowSpendingUnconfirmedTransactions()
-            }
+    fun createWallet(walletName: String, password: String): String {
+        val seed = DeterministicSeed(SecureRandom(), 128, "", System.currentTimeMillis()/1000)
+        kit = WalletAppKit(params, context.filesDir, walletName).apply {
+            setAutoSave(true)
+            setBlockingStartup(false)
+            startAsync()
+            awaitRunning()
         }
-        val seed = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis() / 1000)
-        kit?.restoreWalletFromSeed(seed)
-        kit?.setBlockingStartup(false)
-        kit?.startAsync()
-        kit?.awaitRunning()
+        kit?.wallet()?.let { w ->
+            w.keyChainSeed = seed
+            w.encrypt(password)
+        }
+        return seed.mnemonicCode!!.joinToString(" ")
     }
 
-    fun getBalance(): Coin {
-        return wallet?.balance ?: Coin.ZERO
+    fun importWallet(walletName: String, seedPhrase: String, password: String) {
+        val seed = DeterministicSeed(seedPhrase, null, "", System.currentTimeMillis()/1000)
+        kit = WalletAppKit(params, context.filesDir, walletName).apply {
+            setAutoSave(true)
+            restoreWalletFromSeed(seed)
+            startAsync()
+            awaitRunning()
+        }
+        kit?.wallet()?.encrypt(password)
     }
 
+    fun unlock(walletName: String, password: String): Boolean {
+        return try {
+            kit = WalletAppKit(params, context.filesDir, walletName).apply {
+                setAutoSave(true)
+                startAsync()
+                awaitRunning()
+            }
+            kit?.wallet()?.decrypt(password)
+            true
+        } catch (e: Exception) { false }
+    }
+
+    fun getBalance(): String = kit?.wallet()?.balance?.toFriendlyString() ?: "0.00 BTC"
+
+    // Trả về địa chỉ Legacy 1... giống ảnh
     fun getReceiveAddress(): String {
-        return wallet?.currentReceiveAddress()?.toString() ?: ""
+        val w = kit?.wallet() ?: return ""
+        return w.currentReceiveAddress().toString()
     }
 
-    // GỬI THẬT - phí real
-    fun send(toAddress: String, amountSatoshi: Long, satPerVb: Long): String {
-        val wallet = wallet ?: throw IllegalStateException("Wallet not ready")
+    fun getTransactionHistory(): List<Transaction> = kit?.wallet()?.getTransactionsByTime()?.toList() ?: emptyList()
+
+    fun startSync(onProgress: (Int) -> Unit) {
+        kit?.setDownloadListener { blocksLeft, _, _, _ -> onProgress(blocksLeft) }
+    }
+
+    fun sendCoins(toAddress: String, amount: String, feeSatPerVb: Int): String {
+        val w = kit?.wallet() ?: throw IllegalStateException("Wallet not loaded")
         val to = Address.fromString(params, toAddress)
-        val req = Wallet.SendRequest.to(to, Coin.valueOf(amountSatoshi))
-        
-        // phí thật: 1 sat/vB = 1000 sat/kB
-        req.feePerKb = Coin.valueOf(satPerVb * 1000)
-        req.ensureMinRequiredFee = false
-        
-        val result = wallet.sendCoins(req)
-        return result.tx.txId.toString()
+        val coins = Coin.parseCoin(amount)
+        val req = Wallet.SendRequest.to(to, coins)
+        req.feePerKb = Coin.valueOf(feeSatPerVb * 1000L)
+        w.completeTx(req)
+        w.commitTx(req.tx)
+        kit?.peerGroup()?.broadcastTransaction(req.tx)
+        return req.tx.txId.toString()
     }
 
-    fun getTransactions(): List<Transaction> {
-        return wallet?.getTransactionsByTime()?.toList() ?: emptyList()
+    fun changePassword(oldPass: String, newPass: String): Boolean {
+        return try {
+            wallet?.decrypt(oldPass)
+            wallet?.encrypt(newPass)
+            true
+        } catch (e: Exception) { false }
     }
 
-    fun stop() {
+    fun deleteWallet(name: String) {
         kit?.stopAsync()
+        File(context.filesDir, "$name.wallet").delete()
+        File(context.filesDir, "$name.spvchain").delete()
     }
 }
