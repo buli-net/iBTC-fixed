@@ -4,3 +4,21 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # Chỉ tạo PR, không tự động merge
+    open-pull-requests-limit: 5
+    # Bắt buộc review thủ công
+    reviewers:
+            - "buli"   # đổi thành username GitHub của mày
+    assignees:
+            - "buli"
+    # Không update bitcoinj và crypto core (giữ build ổn định)
+    ignore:
+            - dependency-name: "org.bitcoinj:*"
+            - dependency-name: "org.bouncycastle:*"
+    # Ghi rõ phải approve
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+            - "dependencies"
+            - "needs-approval"
