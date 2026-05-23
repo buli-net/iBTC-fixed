@@ -7,10 +7,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,26 +47,22 @@ fun App() {
         if (!wm.hasWallet()) wm.newWallet()
         wm.onProg = { p, s -> prog = p; stat = s }
         withContext(Dispatchers.IO) { wm.init(); qr = wm.qrBitmap(wm.address()) }
-        while (true) {
-            withContext(Dispatchers.IO) { bal = wm.balance(); price = wm.price(); txs = wm.txs() }
-            delay(15000)
-        }
+        while (true) { withContext(Dispatchers.IO) { bal = wm.balance(); price = wm.price(); txs = wm.txs() }; delay(15000) }
     }
 
     Scaffold(topBar = { TopAppBar(title = { Text("iBTC v4.2") }) }) { pad ->
         Column(Modifier.padding(pad).padding(16.dp)) {
-            TabRow(tab) {
+            TabRow(selectedTabIndex = tab) {
                 listOf("Ví","Nhận","Gửi").forEachIndexed { i,t -> Tab(selected = tab==i, onClick={tab=i}, text={Text(t)}) }
             }
             Spacer(Modifier.height(16.dp))
-
             when(tab) {
                 0 -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(if(hide) "••••••••" else "%.8f BTC".format(bal),
                             style = MaterialTheme.typography.displaySmall.copy(fontWeight=FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface) // FIX DARK
-                        IconButton({hide=!hide}){ Icon(if(hide) Icons.Default.VisibilityOff else Icons.Default.Visibility, null) }
+                            color = MaterialTheme.colorScheme.onSurface) // fix mờ dark
+                        TextButton(onClick = { hide = !hide }) { Text(if(hide) "Hiện" else "Ẩn") }
                     }
                     Text("≈ $${"%,.2f".format(bal*price)}", color=MaterialTheme.colorScheme.primary)
                     Text(stat, style=MaterialTheme.typography.bodySmall)
@@ -80,17 +72,17 @@ fun App() {
                     LazyColumn(Modifier.weight(1f)) {
                         items(txs){t-> ListItem(
                             headlineContent={Text(t.type)},
-                            supportingContent={Text(t.time.toString().take(16))},
-                            trailingContent={Text("%+.8f".format(t.amt), color=if(t.amt>0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)}
+                            supportingContent={Text(t.id.take(12)+"...")},
+                            trailingContent={Text("%+.8f".format(t.amt))}
                         )}
                     }
                 }
                 1 -> {
-                    Column(horizontalAlignment=Alignment.CenterHorizontally, modifier=Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally) {
                         qr?.let{ Image(it.asImageBitmap(), null, Modifier.size(240.dp)) }
                         Spacer(Modifier.height(12.dp))
                         Text(wm.address(), style=MaterialTheme.typography.bodySmall)
-                        IconButton({clip.setText(AnnotatedString(wm.address()))}){ Icon(Icons.Default.ContentCopy,null) }
+                        Button(onClick = { clip.setText(AnnotatedString(wm.address())) }) { Text("Copy địa chỉ") }
                     }
                 }
                 2 -> {
