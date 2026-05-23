@@ -1,6 +1,7 @@
 package net.buli.ibtc
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,11 @@ import kotlinx.coroutines.*
 class MainActivity : ComponentActivity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        // === BẢO MẬT: chặn chụp/quay màn hình ===
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
         setContent { MaterialTheme(colorScheme = darkColorScheme()) { Surface { App() } } }
     }
 }
@@ -43,11 +49,10 @@ fun App() {
 
     Column(Modifier.padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // BẢN GỐC: màu trắng alpha 0.6 -> mờ trong dark
             Text(
                 if (hide) "••••••••" else "%.8f BTC".format(bal),
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Bold),
-                color = Color.White.copy(alpha = 0.6f)
+                color = Color.White.copy(alpha = 0.6f) // vẫn mờ như v4
             )
             Spacer(Modifier.width(8.dp))
             TextButton(onClick = { hide = !hide }) { Text(if (hide) "Hiện" else "Ẩn") }
