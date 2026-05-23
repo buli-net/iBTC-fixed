@@ -88,6 +88,22 @@ class WalletManager(private val context: Context) {
         return kit.wallet().getTransactionsByTime().toList()
     }
 
+
+    /**
+     * Lấy ví để tính toán (dùng nội bộ)
+     */
+    fun getWallet(): Wallet {
+        return kit.wallet()
+    }
+
+    /**
+     * Tính giá trị giao dịch so với ví của mình
+     * Dương = nhận, Âm = gửi
+     */
+    fun getTxValue(tx: Transaction): Coin {
+        return tx.getValue(kit.wallet())
+    }
+
     /**
      * Dừng ví khi app đóng
      */
