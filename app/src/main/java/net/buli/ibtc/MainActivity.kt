@@ -3,271 +3,178 @@ package net.buli.ibtc
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-
-import java.net.URL
-import org.json.JSONObject
-
-private var btcPriceUsd = 75000.0
-
-fun fetchBtcPrice(callback: (Double)->Unit) {
-    Thread {
-        try {
-            val txt = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd").readText()
-            val price = JSONObject(txt).getJSONObject("bitcoin").getDouble("usd")
-            btcPriceUsd = price
-            callback(price)
-        } catch(e:Exception){ callback(btcPriceUsd) }
-    }.start()
-}
-
-data class FeeRates(val low:Long, val med:Long, val high:Long)
-fun fetchFees(callback:(FeeRates)->Unit){
-    Thread{
-        try{
-            val txt = URL("https://mempool.space/api/v1/fees/recommended").readText()
-            val j = JSONObject(txt)
-            val rates = FeeRates(
-                j.getLong("hourFee").coerceIn(1,100),
-                j.getLong("halfHourFee").coerceIn(1,100),
-                j.getLong("fastestFee").coerceIn(1,100)
-            )
-            callback(rates)
-        }catch(e:Exception){ callback(FeeRates(4,8,12)) }
-    }.start()
-}
-
-import android.text.InputType
-import android.view.Gravity
-import android.view.View
+import android.view.LayoutInflater
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
+import org.bitcoinj.core.Coin
+import org.bitcoinj.core.Transaction
+import java.text.SimpleDateFormat
+import java.util.*
 
+/**
+ * MainActivity - Giao diện chính của ví IBTC
+ */
 class MainActivity : AppCompatActivity() {
-    private lateinit var wm: WalletManager
-    private var walletName = "ibtc"
+
+    // Khai báo view
     private lateinit var tvBalance: TextView
-    private lateinit var tvUsd: TextView
     private lateinit var tvStatus: TextView
-    private var currentFee = 3
+    private lateinit var tvAddress: TextView
+    private lateinit var btnCopy: ImageButton
+    private lateinit var btnReceive: Button
+    private lateinit var btnSend: Button
+    private lateinit var lvTransactions: ListView
+    private lateinit var progressSync: ProgressBar
+
+    // Wallet manager
+    private lateinit var walletManager: WalletManager
+
+    // Adapter cho list giao dịch
+    private val txList = mutableListOf<String>()
+    private lateinit var adapter: ArrayAdapter<String>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        wm = WalletManager(this)
-        if (wm.walletExists(walletName)) showLockScreen() else showWelcome()
+        setContentView(R.layout.activity_main)
+
+        // 1. Ánh xạ view từ XML
+        tvBalance = findViewById(R.id.tvBalance)
+        tvStatus = findViewById(R.id.tvStatus)
+        tvAddress = findViewById(R.id.tvAddress)
+        btnCopy = findViewById(R.id.btnCopy)
+        btnReceive = findViewById(R.id.btnReceive)
+        btnSend = findViewById(R.id.btnSend)
+        lvTransactions = findViewById(R.id.lvTransactions)
+        progressSync = findViewById(R.id.progressSync)
+
+        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, txList)
+        lvTransactions.adapter = adapter
+
+        // 2. Khởi tạo ví
+        tvStatus.text = "Đang khởi tạo ví..."
+        progressSync.visibility = ProgressBar.VISIBLE
+
+        walletManager = WalletManager(this)
+
+        // 3. Thiết lập callback khi balance thay đổi
+        walletManager.onBalanceChanged = { balance ->
+            runOnUiThread {
+                // Hiển thị BTC với 8 số thập phân
+                tvBalance.text = "${balance.toFriendlyString()} BTC"
+                tvStatus.text = "Đã đồng bộ"
+                progressSync.visibility = ProgressBar.GONE
+            }
+        }
+
+        walletManager.onTransaction = { tx ->
+            runOnUiThread {
+                addTransactionToList(tx)
+            }
+        }
+
+        // 4. Start ví trong thread riêng để không lag UI
+        Thread {
+            walletManager.startWallet()
+            runOnUiThread {
+                tvAddress.text = walletManager.getReceiveAddress()
+                // Load lịch sử cũ
+                walletManager.getTransactions().forEach { addTransactionToList(it) }
+            }
+        }.start()
+
+        // 5. Nút copy địa chỉ
+        btnCopy.setOnClickListener {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("BTC Address", tvAddress.text)
+            clipboard.setPrimaryClip(clip)
+            Toast.makeText(this, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
+        }
+
+        // 6. Nút Nhận - hiện dialog
+        btnReceive.setOnClickListener {
+            showReceiveDialog()
+        }
+
+        // 7. Nút Gửi - hiện dialog nhập
+        btnSend.setOnClickListener {
+            showSendDialog()
+        }
     }
 
-    private fun showWelcome() {
+    /**
+     * Hiện dialog địa chỉ nhận
+     */
+    private fun showReceiveDialog() {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_receive, null)
+        val tvAddr = view.findViewById<TextView>(R.id.tvReceiveAddr)
+        tvAddr.text = walletManager.getReceiveAddress()
+
+        AlertDialog.Builder(this)
+            .setTitle("Nhận BTC")
+            .setView(view)
+            .setPositiveButton("Copy") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("BTC", tvAddr.text))
+                Toast.makeText(this, "Đã copy", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    /**
+     * Hiện dialog gửi BTC
+     */
+    private fun showSendDialog() {
         val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
-            setBackgroundColor(Color.WHITE); setPadding(60,0,60,0)
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 40, 50, 10)
         }
-        val logo = TextView(this).apply { text = "iBTC"; textSize = 48f; setTextColor(Color.BLACK) }
-        val btnCreate = Button(this).apply {
-            text = "TẠO VÍ MỚI"; setBackgroundColor(Color.parseColor("#3F51B5")); setTextColor(Color.WHITE)
-            setOnClickListener { showCreateDialog() }
-        }
-        val btnImport = Button(this).apply {
-            text = "IMPORT SEED"; setBackgroundColor(Color.WHITE); setTextColor(Color.parseColor("#3F51B5"))
-            setOnClickListener { showImportDialog() }
-        }
-        layout.addView(logo); layout.addView(btnCreate); layout.addView(btnImport)
-        setContentView(layout)
-    }
+        val etAddress = EditText(this).apply { hint = "Địa chỉ BTC (bắt đầu bằng 1, 3 hoặc bc1)" }
+        val etAmount = EditText(this).apply { hint = "Số lượng BTC (vd: 0.001)"; inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL }
+        layout.addView(etAddress)
+        layout.addView(etAmount)
 
-    private fun showCreateDialog() {
-        val l = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(40,40,40,40) }
-        val etName = EditText(this).apply { hint="Tên ví" }
-        val etPass = EditText(this).apply { hint="Mật khẩu (>=8)"; inputType=InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val etPass2 = EditText(this).apply { hint="Nhập lại"; inputType=InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        listOf(etName,etPass,etPass2).forEach{l.addView(it)}
-        AlertDialog.Builder(this).setTitle("Tạo ví mới").setView(l)
-            .setPositiveButton("TẠO VÍ"){_,_->
-                walletName = etName.text.toString().ifEmpty{"ibtc"}
-                val seed = wm.createWallet(walletName, etPass.text.toString())
-                AlertDialog.Builder(this).setTitle("LƯU SEED 12 TỪ").setMessage(seed)
-                    .setPositiveButton("Đã lưu"){_,_->showLockScreen()}.show()
-            }.setNegativeButton("HỦY",null).show()
-    }
-
-    private fun showImportDialog() {
-        val l = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(40,40,40,40) }
-        val etName = EditText(this).apply { hint="Tên ví" }
-        val etSeed = EditText(this).apply { hint="Seed 12 từ" }
-        val etPass = EditText(this).apply { hint="Mật khẩu mới (>=8)"; inputType=InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val etPass2 = EditText(this).apply { hint="Nhập lại"; inputType=InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        listOf(etName,etSeed,etPass,etPass2).forEach{l.addView(it)}
-        AlertDialog.Builder(this).setTitle("Import ví").setView(l)
-            .setPositiveButton("IMPORT"){_,_->
-                walletName = etName.text.toString().ifEmpty{"ibtc"}
-                wm.importWallet(walletName, etSeed.text.toString(), etPass.text.toString())
-                showLockScreen()
-            }.setNegativeButton("HỦY",null).show()
-    }
-
-    private fun showLockScreen() {
-        val l = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; gravity=Gravity.CENTER; setBackgroundColor(Color.WHITE); setPadding(60,0,60,0) }
-        val logo = TextView(this).apply { text="🔒 iBTC"; textSize=32f; gravity=Gravity.CENTER }
-        val etPass = EditText(this).apply { hint="Mật khẩu"; inputType=InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val btn = Button(this).apply { text="MỞ KHÓA"; setBackgroundColor(Color.parseColor("#3F51B5")); setTextColor(Color.WHITE)
-            setOnClickListener { if(wm.unlock(walletName, etPass.text.toString())) showHome() else Toast.makeText(this@MainActivity,"Sai mật khẩu",0).show() } }
-        l.addView(logo); l.addView(etPass); l.addView(btn)
-        setContentView(l)
-    }
-
-    private fun showHome() {
-        val root = ScrollView(this)
-        val main = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
-        root.addView(main)
-
-        // header + menu
-        val header = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL; setPadding(30,60,30,20) }
-        header.addView(TextView(this).apply { text=walletName; textSize=18f; layoutParams=LinearLayout.LayoutParams(0,-2,1f) })
-        val menuBtn = TextView(this).apply { text="⋮"; textSize=24f; setOnClickListener{ showMenu() } }
-        header.addView(menuBtn)
-        main.addView(header)
-
-        // tabs
-        val tabs = LinearLayout(this).apply { orientation=LinearLayout.HORIZONTAL }
-        val tabVi = TextView(this).apply { text="Ví"; gravity=Gravity.CENTER; setTextColor(Color.parseColor("#3F51B5")); textSize=16f; setPadding(0,20,0,20) }
-        val tabSend = TextView(this).apply { text="Gửi/Nhận"; gravity=Gravity.CENTER; setTextColor(Color.GRAY); textSize=16f }
-        tabs.addView(tabVi.apply { layoutParams=LinearLayout.LayoutParams(0,-2,1f) })
-        tabs.addView(tabSend.apply { layoutParams=LinearLayout.LayoutParams(0,-2,1f) })
-        main.addView(tabs)
-
-        // content container
-        val content = FrameLayout(this)
-        main.addView(content)
-
-        val viView = createViView()
-        val sendView = createSendView()
-
-        content.addView(viView)
-        content.addView(sendView.apply { visibility=View.GONE })
-
-        tabVi.setOnClickListener { viView.visibility=View.VISIBLE; sendView.visibility=View.GONE; tabVi.setTextColor(Color.parseColor("#3F51B5")); tabSend.setTextColor(Color.GRAY) }
-        tabSend.setOnClickListener { viView.visibility=View.GONE; sendView.visibility=View.VISIBLE; tabVi.setTextColor(Color.GRAY); tabSend.setTextColor(Color.parseColor("#3F51B5")) }
-
-        setContentView(root)
-    }
-
-    private fun createViView(): View {
-        val l = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(30,20,30,20) }
-        val card = LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL; setPadding(40,30,40,30)
-            background=GradientDrawable().apply{cornerRadius=30f; setColor(Color.parseColor("#EDEDED"))}
-        }
-        card.addView(TextView(this).apply{ text="Số dư:"; setTextColor(Color.GRAY) })
-        tvBalance = TextView(this).apply{ text="0,00000000 BTC"; textSize=28f; setTextColor(Color.BLACK) }
-        tvUsd = TextView(this).apply{ text="≈ $0,00"; setTextColor(Color.BLACK) }
-        card.addView(tvBalance); card.addView(tvUsd)
-        card.addView(TextView(this).apply{ text="$75.108,23 / BTC"; setTextColor(Color.GRAY); textSize=12f })
-        tvStatus = TextView(this).apply{ text="Chưa sync • Giá tự động"; setTextColor(Color.GRAY); textSize=12f }
-        card.addView(tvStatus)
-        l.addView(card)
-
-        val btnSync = Button(this).apply {
-            text="SYNC NGAY"; setBackgroundColor(Color.parseColor("#3F51B5")); setTextColor(Color.WHITE)
-            layoutParams=LinearLayout.LayoutParams(-1,140).apply{ topMargin=20 }
-            setOnClickListener{
-                tvStatus.text="Đang sync..."
-                wm.startSync{ p -> runOnUiThread{ tvStatus.text="Sync: $p blocks"; updateBalance() } }
+        AlertDialog.Builder(this)
+            .setTitle("Gửi BTC")
+            .setView(layout)
+            .setPositiveButton("Gửi") { _, _ ->
+                val addr = etAddress.text.toString().trim()
+                val amt = etAmount.text.toString().toDoubleOrNull()
+                if (addr.isNotEmpty() && amt != null && amt > 0) {
+                    Thread {
+                        try {
+                            val txId = walletManager.sendCoins(addr, amt)
+                            runOnUiThread {
+                                Toast.makeText(this, "Đã gửi! TXID: $txId", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                Toast.makeText(this, "Lỗi: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    }.start()
+                } else {
+                    Toast.makeText(this, "Nhập sai địa chỉ hoặc số lượng", Toast.LENGTH_SHORT).show()
+                }
             }
-        }
-        l.addView(btnSync)
-        l.addView(TextView(this).apply{ text="Lịch sử"; setPadding(0,30,0,10); textSize=16f })
-        updateBalance()
-        return l
+            .setNegativeButton("Hủy", null)
+            .show()
     }
 
-    private fun createSendView(): View {
-        val l = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(30,20,30,20) }
-        l.addView(TextView(this).apply{ text="Gửi BTC"; textSize=16f; setPadding(0,0,0,10) })
-
-        val etAddr = EditText(this).apply{ hint="Địa chỉ" }
-        val etAmt = EditText(this).apply{ hint="BTC"; inputType=InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        l.addView(etAddr); l.addView(etAmt)
-
-        l.addView(TextView(this).apply{ text="Phí mạng:"; setPadding(0,20,0,10) })
-        val rg = RadioGroup(this)
-        val fees = listOf("Chậm (1 sat/vB)" to 1, "Thường (3 sat/vB)" to 3, "Nhanh (3 sat/vB)" to 3, "Tùy chỉnh" to 3)
-        fees.forEachIndexed{ i,(t,v) ->
-            val rb = RadioButton(this).apply{ text=t; tag=v; if(i==1) isChecked=true }
-            rg.addView(rb)
-        }
-        rg.setOnCheckedChangeListener{_,id-> currentFee = l.findViewById<RadioButton>(id).tag as Int; updateFeePreview(etAmt.text.toString()) }
-        l.addView(rg)
-
-        val feeCard = LinearLayout(this).apply{
-            orientation=LinearLayout.VERTICAL; setPadding(20,20,20,20)
-            background=GradientDrawable().apply{ cornerRadius=20f; setColor(Color.parseColor("#EDEDED")) }
-        }
-        val tvFee = TextView(this).apply{ text="Ước tính phí: 0,00000750 BTC (≈ $0,56)" }
-        val tvTotal = TextView(this).apply{ text="Tổng (gửi + phí): 0,00000750 BTC"; setTypeface(null, android.graphics.Typeface.BOLD) }
-        val tvBal = TextView(this).apply{ text="Số dư 0,00000000 BTC"; setTextColor(Color.GRAY); textSize=12f }
-        feeCard.addView(tvFee); feeCard.addView(tvTotal); feeCard.addView(tvBal)
-        l.addView(feeCard)
-
-        val btnSend = Button(this).apply{
-            text="GỬI"; isEnabled=false; setBackgroundColor(Color.LTGRAY)
-            setOnClickListener{
-                try{
-                    val txid = wm.sendCoins(etAddr.text.toString(), etAmt.text.toString(), currentFee)
-                    Toast.makeText(this@MainActivity,"Đã gửi: $txid",1).show()
-                }catch(e:Exception){ Toast.makeText(this@MainActivity,"Lỗi: ${e.message}",1).show() }
-            }
-        }
-        l.addView(btnSend)
-
-        // Nhận BTC
-        l.addView(TextView(this).apply{ text="Nhận BTC"; setPadding(0,30,0,10) })
-        val addr = wm.getReceiveAddress()
-        val iv = ImageView(this).apply{ setImageBitmap(generateQR(addr)); layoutParams=LinearLayout.LayoutParams(400,400).apply{ gravity=Gravity.CENTER } }
-        l.addView(iv)
-        l.addView(TextView(this).apply{ text=addr; gravity=Gravity.CENTER; setPadding(0,10,0,10); textSize=12f })
-        val btnCopy = Button(this).apply{
-            text="COPY"; setBackgroundColor(Color.parseColor("#3F51B5")); setTextColor(Color.WHITE)
-            setOnClickListener{
-                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("addr", addr))
-                Toast.makeText(this@MainActivity,"Đã copy",0).show()
-            }
-        }
-        l.addView(btnCopy)
-        return l
+    /**
+     * Thêm giao dịch vào list
+     */
+    private fun addTransactionToList(tx: Transaction) {
+        val date = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(tx.updateTime?.time ?: System.currentTimeMillis()))
+        val value = tx.getValue(walletManager.getBalance()).toFriendlyString()
+        val type = if (tx.getValue(walletManager.getBalance()).isPositive) "Nhận" else "Gửi"
+        txList.add(0, "$date - $type $value BTC")
+        adapter.notifyDataSetChanged()
     }
 
-    private fun updateBalance() {
-        val bal = wm.getBalance().replace(" BTC","").replace(".",",")
-        tvBalance.text = "$bal BTC"
-    }
-
-    private fun updateFeePreview(amt: String){}
-
-    private fun generateQR(text: String): Bitmap {
-        val writer = QRCodeWriter()
-        val bitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, 400, 400)
-        val bmp = Bitmap.createBitmap(400,400, Bitmap.Config.RGB_565)
-        for(x in 0 until 400) for(y in 0 until 400) bmp.setPixel(x,y, if(bitMatrix[x,y]) Color.BLACK else Color.WHITE)
-        return bmp
-    }
-
-    private fun showMenu() {
-        val items = arrayOf("Đổi tên","Đổi mật khẩu","Chi tiết ví","Khóa ví","Xóa ví")
-        AlertDialog.Builder(this).setItems(items){_,which->
-            when(which){
-                0->{ /* đổi tên */ }
-                1->{ /* đổi mk */ }
-                2-> AlertDialog.Builder(this).setTitle("Seed").setMessage("Nhập mật khẩu để xem").show()
-                3-> showLockScreen()
-                4-> { wm.deleteWallet(walletName); showWelcome() }
-            }
-        }.show()
+    override fun onDestroy() {
+        super.onDestroy()
+        walletManager.stopWallet()
     }
 }
