@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace 'net.buli.ibtc'
-    compileSdk 34
+    compileSdk 33
 
     defaultConfig {
         applicationId "net.buli.ibtc"
         minSdk 24
-        targetSdk 34
+        targetSdk 33
         versionCode 1
         versionName "1.0"
     }
