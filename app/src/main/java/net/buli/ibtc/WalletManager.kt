@@ -18,7 +18,8 @@ class WalletManager(private val context: Context) {
 
     fun startWallet() {
         try {
-            Context.propagate(params)
+            // FIX LỖI: dùng đúng Context của bitcoinj, không phải android.content.Context
+            org.bitcoinj.core.Context.propagate(params)
             java.security.Security.insertProviderAt(org.spongycastle.jce.provider.BouncyCastleProvider(), 1)
         } catch (e: Exception) {}
 
@@ -64,7 +65,6 @@ class WalletManager(private val context: Context) {
     }
 
     fun getWallet(): Wallet = kit.wallet()
-
     fun getTxValue(tx: Transaction): Coin = tx.getValue(kit.wallet())
 
     fun stopWallet() {
