@@ -14,15 +14,15 @@ import org.bitcoinj.params.MainNetParams
 import org.bitcoinj.params.TestNet3Params
 import org.bitcoinj.script.ScriptType
 import org.bitcoinj.store.SPVBlockStore
-import org.bitcoinj.wallet.*
-import org.bitcoinj.wallet.listeners.WalletCoinsReceivedEventListener
-import org.bitcoinj.wallet.listeners.WalletCoinsSentEventListener
+import org.bitcoinj.wallet.DeterministicSeed
+import org.bitcoinj.wallet.SendRequest
+import org.bitcoinj.wallet.Wallet
+import org.bitcoinj.wallet.WalletProtobufSerializer
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.security.SecureRandom
 import java.text.SimpleDateFormat
-import java.time.Instant
 import java.util.*
 import java.util.concurrent.TimeUnit
 
@@ -113,11 +113,10 @@ class WalletManager(private val context: Context, private val appDir: File) {
                     val wallet = Wallet.fromSeed(
                         NETWORK_PARAMETERS,
                         currentDeterministicSeed!!,
-                        ScriptType.P2PKH,  // Legacy P2PKH for maximum compatibility
-                        WalletProtobufSerializer.parseToProto("").keyList.size // Key chain structure
+                        ScriptType.P2PKH
                     )
                     
-                    Log.i(TAG, "Wallet created from seed with ${wallet.keyChainGroupStructure}")
+                    Log.i(TAG, "Wallet created from seed")
                     wallet
                 } else {
                     Log.i(TAG, "Creating NEW RANDOM wallet")
@@ -145,7 +144,6 @@ class WalletManager(private val context: Context, private val appDir: File) {
                 
                 Log.i(TAG, "Wallet address: ${wallet.currentReceiveAddress()}")
                 Log.i(TAG, "Wallet balance: ${wallet.balance.toFriendlyString()}")
-                Log.i(TAG, "Keychain size: ${wallet.keyChainGroupSize}")
                 
                 isWalletRunning = true
                 onWalletReadyListener?.invoke()
@@ -175,7 +173,8 @@ class WalletManager(private val context: Context, private val appDir: File) {
             setAutoSave(true)
             setBlockingStartup(false)
             setUserAgent("iBTC", "4.1")
-            setMaxConnections(MAX_CONNECTIONS)
+            // FIX: Bỏ setMaxConnections vì 0.16.3 không có method này
+            // setMaxConnections(MAX_CONNECTIONS)
             
             // Set peer discovery
             setDiscovery(DnsDiscovery(NETWORK_PARAMETERS))
@@ -205,20 +204,19 @@ class WalletManager(private val context: Context, private val appDir: File) {
     private fun createDownloadProgressTracker(): DownloadProgressTracker {
         return object : DownloadProgressTracker() {
             
-            // BITCOINJ 0.16.3 - date parameter is Instant?
-            override fun progress(pct: Double, blocksSoFar: Int, date: Instant?) {
+            // FIX: 0.16.3 dùng Date? thay vì Instant?
+            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
                 super.progress(pct, blocksSoFar, date)
                 
                 lastSyncPercentage = pct
                 currentBlockHeight = blocksSoFar
                 isBlockchainSyncing = pct < 100.0
                 
-                val javaDate = date?.let { Date.from(it) }
                 val totalBlocks = walletKit.peerGroup().mostCommonChainHeight
                 
                 Log.v(TAG, "Sync progress: ${String.format("%.2f", pct)}% ($blocksSoFar/$totalBlocks)")
                 
-                onSyncProgressListener?.invoke(pct, blocksSoFar, totalBlocks, javaDate)
+                onSyncProgressListener?.invoke(pct, blocksSoFar, totalBlocks, date)
             }
 
             override fun doneDownload() {
@@ -230,7 +228,7 @@ class WalletManager(private val context: Context, private val appDir: File) {
                 lastSyncPercentage = 100.0
                 
                 onSyncCompletedListener?.invoke()
-                onSyncProgressListener?.invoke(100.0, currentBlockHeight, currentBlockHeight, Date())
+                onSyncProgressListener?.invoke(100.0, currentBlockHeight, Date())
             }
 
             override fun onBlocksDownloaded(peer: Peer?, block: Block?, filteredBlock: FilteredBlock?, blocksLeft: Int) {
@@ -340,7 +338,8 @@ class WalletManager(private val context: Context, private val appDir: File) {
         
         val wallet = getWallet()!!
         val firstAddress = wallet.currentReceiveAddress().toString()
-        val walletId = wallet.walletId.toString()
+        // FIX: 0.16.3 không có walletId, tạo ID từ seed
+        val walletId = seed.seedBytes?.joinToString("") { "%02x".format(it) }?.take(16) ?: firstAddress.take(16)
         
         Log.i(TAG, "New wallet created successfully")
         Log.i(TAG, "First address: $firstAddress")
@@ -465,8 +464,6 @@ class WalletManager(private val context: Context, private val appDir: File) {
         return Date(seconds * 1000)
     }
 
-    fun getWalletId(): String = getWallet()?.walletId?.toString() ?: ""
-
     fun getNetworkParameters(): NetworkParameters = NETWORK_PARAMETERS
 
     fun getCurrentBlockHeight(): Int = currentBlockHeight
@@ -565,7 +562,7 @@ class WalletManager(private val context: Context, private val appDir: File) {
             val targetAddress = try {
                 Address.fromString(NETWORK_PARAMETERS, destinationAddress.trim())
             } catch (e: Exception) {
-                return SendCoinsResult(false, null, null, "Invalid Bitcoin address: ${e.message}", null)
+                return SendCoinsResult(false, null, "Invalid Bitcoin address: ${e.message}", null)
             }
             
             // Check balance
@@ -583,8 +580,6 @@ class WalletManager(private val context: Context, private val appDir: File) {
                 feePerKb = Coin.valueOf(feePerKilobyte)
                 ensureMinRequiredFee = true
                 memo?.let { this.memo = it }
-                // Enable RBF
-                // this.enableRBF = true
             }
             
             // Complete transaction (calculate fee, select inputs)
@@ -664,9 +659,7 @@ class WalletManager(private val context: Context, private val appDir: File) {
             Log.i(TAG, "Creating encrypted backup")
             
             // Encrypt wallet
-            val keyCrypter = wallet.keyCrypter
-            if (keyCrypter == null) {
-                // Wallet not encrypted, encrypt it first
+            if (!wallet.isEncrypted) {
                 wallet.encrypt(password)
             }
             
@@ -729,9 +722,7 @@ class WalletManager(private val context: Context, private val appDir: File) {
         val filesToDelete = listOf(
             File(appDir, "$WALLET_FILENAME_PREFIX.wallet"),
             File(appDir, "$WALLET_FILENAME_PREFIX.wallet.protobuf"),
-            File(appDir, "$WALLET_FILENAME_PREFIX.wallet-protobuf"),
-            File(appDir, "$SPV_BLOCKCHAIN_FILENAME.spvchain"),
-            File(appDir, "$SPV_BLOCKCHAIN_FILENAME.spvchain-journal")
+            File(appDir, "$SPV_BLOCKCHAIN_FILENAME.spvchain")
         )
         
         filesToDelete.forEach { file ->
@@ -793,7 +784,6 @@ class WalletManager(private val context: Context, private val appDir: File) {
     )
 
     fun getNetworkInfo(): NetworkInfo {
-        val peerGroup = if (::walletKit.isInitialized) walletKit.peerGroup() else null
         val chain = if (::walletKit.isInitialized) walletKit.chain() else null
         
         return NetworkInfo(
@@ -815,5 +805,10 @@ class WalletManager(private val context: Context, private val appDir: File) {
         onBalanceChangedListener = null
         onTransactionReceivedListener = null
         onTransactionSentListener = null
+    }
+
+    // FIX: Thêm method thay thế cho walletId không tồn tại trong 0.16.3
+    fun getWalletId(): String {
+        return getCurrentReceiveAddress().take(16)
     }
 }
