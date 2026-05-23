@@ -30,19 +30,17 @@ class WalletManager(private val ctx: Context) {
         kit = WalletAppKit(params, File(ctx.filesDir, "w"), "ibtc").apply {
             setBlockingStartup(false)
             setUserAgent("iBTC", "4.2")
-            setPeerNodes(DnsDiscovery(params))
+            setDiscovery(DnsDiscovery(params)) // FIX cho 0.16.2
             restoreWalletFromSeed(seed)
             try { setCheckpoints(ctx.assets.open("bitcoin-checkpoints.txt")) } catch (_: Exception) {}
             setDownloadListener(object : org.bitcoinj.core.listeners.DownloadProgressTracker() {
-                override fun progress(p: Double, b: Int, d: Date?) {
-                    onProg(p.toInt(), "Sync ${p.toInt()}% - $b blocks")
-                }
+                override fun progress(p: Double, b: Int, d: Date?) { onProg(p.toInt(), "Sync ${p.toInt()}%") }
                 override fun doneDownload() { onProg(100, "Đã đồng bộ") }
             })
-            startAsync()
-            awaitRunning()
+            startAsync(); awaitRunning()
             peerGroup().maxConnections = 6
-            wallet().addCoinsReceivedEventListener { _, _, _ -> }
+            // FIX signature 4 tham số
+            wallet().addCoinsReceivedEventListener { _, _, _, _ -> }
         }
     }
 
@@ -50,9 +48,7 @@ class WalletManager(private val ctx: Context) {
         val seed = DeterministicSeed(SecureRandom(), 128, "")
         val m = seed.mnemonicCode!!.joinToString(" ")
         prefs.edit().putString("seed", m).apply()
-        kit?.stopAsync(); kit = null
-        init()
-        return m
+        kit?.stopAsync(); kit = null; init(); return m
     }
 
     fun hasWallet() = prefs.contains("seed")
@@ -62,18 +58,11 @@ class WalletManager(private val ctx: Context) {
         val v = it.getValue(kit!!.wallet())
         TxInfo(it.txId.toString(), v.toBtc().toDouble(), it.updateTime, if (v.isPositive) "Nhận" else "Gửi")
     }?.reversed() ?: emptyList()
-
-    fun price(): Double = try {
-        Regex("\"USD\":\\{\"last\":([0-9.]+)").find(URL("https://blockchain.info/ticker").readText())?.groupValues?.get(1)?.toDouble() ?: 0.0
-    } catch (_: Exception) { 0.0 }
-
+    fun price() = try { Regex("\"USD\":\\{\"last\":([0-9.]+)").find(URL("https://blockchain.info/ticker").readText())?.groupValues?.get(1)?.toDouble() ?: 0.0 } catch (_:Exception){0.0}
     fun send(to: String, amt: Double): String {
         val tx = kit!!.wallet().createSend(Address.fromString(params, to), Coin.parseCoin("%.8f".format(amt)))
-        kit!!.wallet().commitTx(tx)
-        kit!!.peerGroup().broadcastTransaction(tx).broadcast()
-        return tx.txId.toString()
+        kit!!.wallet().commitTx(tx); kit!!.peerGroup().broadcastTransaction(tx); return tx.txId.toString()
     }
-
     fun qrBitmap(data: String, size: Int = 512): Bitmap {
         val bits = QRCodeWriter().encode(data, BarcodeFormat.QR_CODE, size, size)
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
