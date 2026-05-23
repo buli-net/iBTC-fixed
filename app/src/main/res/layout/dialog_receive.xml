@@ -7,7 +7,4 @@
     <TextView android:id="@+id/tvReceiveAddr" android:text="1..." android:textIsSelectable="true"
         android:textSize="16sp" android:layout_marginTop="12dp"
         android:layout_width="match_parent" android:layout_height="wrap_content"/>
-    <TextView android:text="Gửi BTC thật vào địa chỉ này. Mạng sẽ đồng bộ sau 1-2 phút."
-        android:textSize="12sp" android:layout_marginTop="8dp"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
 </LinearLayout>
