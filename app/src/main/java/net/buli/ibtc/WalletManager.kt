@@ -42,12 +42,7 @@ class WalletManager(private val ctx: Context) {
             ks.getKey("ibtc_key", null) as SecretKey
         } else {
             val kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-            kg.init(
-                KeyGenParameterSpec.Builder("ibtc_key", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .build()
-            )
+            kg.init(KeyGenParameterSpec.Builder("ibtc_key", KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT).setBlockModes(KeyProperties.BLOCK_MODE_GCM).setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
             kg.generateKey()
         }
     }
@@ -69,9 +64,7 @@ class WalletManager(private val ctx: Context) {
         return String(c.doFinal(e))
     }
 
-    fun hasWallets(): Boolean {
-        return prefs.all.keys.any { it.endsWith("_seed") }
-    }
+    fun hasWallets(): Boolean = prefs.all.keys.any { it.endsWith("_seed") }
 
     fun getActive(): WalletInfo? {
         if (active != null) return active
@@ -94,7 +87,7 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun import(name: String, phrase: String): WalletInfo? {
-        try {
+        return try {
             val words = phrase.trim().split("\\s+".toRegex())
             if (words.size < 12) return null
             DeterministicSeed(words, null, "", System.currentTimeMillis() / 1000)
@@ -102,10 +95,8 @@ class WalletManager(private val ctx: Context) {
             val info = WalletInfo(id, if (name.isBlank()) "Imported" else name, words.joinToString(" "))
             prefs.edit().putString("${id}_name", info.name).putString("${id}_seed", enc(info.seed)).apply()
             active = info
-            return info
-        } catch (_: Exception) {
-            return null
-        }
+            info
+        } catch (_: Exception) { null }
     }
 
     fun rename(id: String, newName: String) {
@@ -147,17 +138,9 @@ class WalletManager(private val ctx: Context) {
         })
     }
 
-    fun getBalance(): Double {
-        return kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
-    }
-
-    fun getAddress(): String {
-        return kit?.wallet()?.currentReceiveAddress().toString()
-    }
-
-    fun getSeed(): String {
-        return active?.seed ?: ""
-    }
+    fun getBalance(): Double = kit?.wallet()?.balance?.value?.toDouble()?.div(1e8) ?: 0.0
+    fun getAddress(): String = kit?.wallet()?.currentReceiveAddress().toString()
+    fun getSeed(): String = active?.seed ?: ""
 
     fun getTransactions(): List<TransactionInfo> {
         val w = kit?.wallet() ?: return emptyList()
@@ -168,31 +151,23 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun send(to: String, amountBTC: Double, feeRateSatVb: Int): String {
-        try {
+        return try {
             val w = kit?.wallet() ?: return "Lỗi: chưa sync"
             if (amountBTC <= 0) return "Số tiền không hợp lệ"
             val amount = Coin.parseCoin("%.8f".format(amountBTC))
             if (w.balance.isLessThan(amount)) return "Số dư không đủ"
-            
             val addr = try { Address.fromString(params, to) } catch (_: Exception) { return "Địa chỉ không hợp lệ" }
-            
             val req = SendRequest.to(addr, amount)
-            // FIX PHÍ THẬT - bitcoinj dùng sat/kB
             req.feePerKb = Coin.valueOf(feeRateSatVb * 1000L)
-            
-            // FIX RBF - cho phép thay thế phí
-            req.tx.inputs.forEach { input ->
-                input.sequenceNumber = TransactionInput.NO_SEQUENCE - 2 // 0xfffffffd
-            }
-            
+            req.tx.inputs.forEach { it.sequenceNumber = TransactionInput.NO_SEQUENCE - 2 }
             w.completeTx(req)
             w.commitTx(req.tx)
             kit!!.peerGroup().broadcastTransaction(req.tx).future().get()
-            return "Đã gửi: ${req.tx.txId}"
+            "Đã gửi: ${req.tx.txId}"
         } catch (e: InsufficientMoneyException) {
-            return "Số dư không đủ phí"
+            "Số dư không đủ phí"
         } catch (e: Exception) {
-            return "Lỗi: ${e.message}"
+            "Lỗi: ${e.message}"
         }
     }
 
@@ -207,11 +182,16 @@ class WalletManager(private val ctx: Context) {
     }
 
     fun price(): Double {
+        var p: Double? = null
         var t = httpGet("https://api.coinbase.com/v2/prices/BTC-USD/spot")
-        var p = Regex("\"amount\":\"([\\d.]+)\"").find(t)?.groupValues?.get(1)?.toDoubleOrNull()
+        p = Regex("\"amount\":\"([\\d.]+)\"").find(t)?.groupValues?.get(1)?.toDoubleOrNull()
         if (p == null) {
             t = httpGet("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT")
             p = Regex("\"price\":\"([\\d.]+)\"").find(t)?.groupValues?.get(1)?.toDoubleOrNull()
+        }
+        if (p == null) {
+            t = httpGet("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
+            p = Regex("\"usd\":([\\d.]+)").find(t)?.groupValues?.get(1)?.toDoubleOrNull()
         }
         val r = p ?: lastPrice
         if (r != lastPrice && r > 0) {
