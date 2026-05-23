@@ -1,329 +1,355 @@
 package net.buli.ibtc
 
+import android.content.Context
 import android.util.Log
-import org.bitcoinj.core.Address
-import org.bitcoinj.core.Coin
-import org.bitcoinj.core.NetworkParameters
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.bitcoinj.core.*
 import org.bitcoinj.core.listeners.DownloadProgressTracker
+import org.bitcoinj.kits.WalletAppKit
 import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.script.ScriptType
+import org.bitcoinj.store.SPVBlockStore
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.SendRequest
 import org.bitcoinj.wallet.Wallet
-import org.bitcoinj.kits.WalletAppKit
-import org.bitcoinj.utils.Threading
+import org.bitcoinj.wallet.WalletProtobufSerializer
 import java.io.File
+import java.io.FileInputStream
 import java.security.SecureRandom
-import java.util.Date
-import java.util.concurrent.TimeUnit
+import java.text.SimpleDateFormat
+import java.time.Instant
+import java.util.*
 
 /**
- * WalletManager v4.1 - Full version
- * Build date: 2025-05-22
- * Compatible with bitcoinj 0.17
- * 
- * Chức năng:
- * - Tạo ví mới HD (BIP32/BIP44)
- * - Khôi phục ví từ mnemonic 12 từ
- * - Đồng bộ blockchain SPV
- * - Gửi/nhận BTC mainnet
- * - Theo dõi tiến trình sync
+ * WalletManager - Full version for iBTC v4.1
+ * Compatible with bitcoinj-core 0.16.3
+ * Features: create, restore, backup, send, receive, SPV sync, transaction history
  */
-class WalletManager(private val appDir: File) {
-
-    private val TAG = "WalletManager_v41"
-    private val params: NetworkParameters = MainNetParams.get()
-    private lateinit var kit: WalletAppKit
-    private var progressListener: ((Double, Int, Date?) -> Unit)? = null
-    private var isSyncing = false
+class WalletManager(private val context: Context, private val appDir: File) {
 
     companion object {
+        private const val TAG = "WalletManager"
         private const val WALLET_FILE_PREFIX = "ibtc-wallet"
-        private const val DEFAULT_FEE_PER_KB = 2000L // 2 sat/byte
+        private const val SPV_FILE = "ibtc-spv.blockstore"
     }
 
-    /**
-     * Tạo ví mới với seed ngẫu nhiên
-     * @return List 12 từ mnemonic
-     */
-    fun createNewWallet(): List<String> {
-        Log.d(TAG, "=== createNewWallet START ===")
-        try {
-            // Tạo seed mới với độ mạnh 128 bit = 12 từ
-            val seed = DeterministicSeed(SecureRandom(), 128, "")
-            Log.d(TAG, "Seed created, mnemonic size: ${seed.mnemonicCode?.size}")
-            
-            // Tạo wallet từ seed
-            val wallet = Wallet.fromSeed(params, seed, MainNetParams.get())
-            Log.d(TAG, "Wallet created from seed")
-            
-            // Khởi tạo WalletAppKit
-            initKit(wallet)
-            
-            Log.d(TAG, "=== createNewWallet SUCCESS ===")
-            return seed.mnemonicCode ?: emptyList()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "createNewWallet FAILED", e)
-            throw RuntimeException("Không thể tạo ví mới: ${e.message}", e)
-        }
+    private val params: NetworkParameters = MainNetParams.get()
+    private lateinit var kit: WalletAppKit
+    private var currentSeed: DeterministicSeed? = null
+    private var isSyncing = false
+
+    // Listeners
+    var onSyncProgress: ((percent: Double, blocksLeft: Int, date: Date?) -> Unit)? = null
+    var onSyncFinished: (() -> Unit)? = null
+    var onBalanceChanged: ((Coin) -> Unit)? = null
+    var onTransactionReceived: ((Transaction) -> Unit)? = null
+
+    // ==================== WALLET LIFECYCLE ====================
+
+    fun initialize(existingSeed: DeterministicSeed? = null) {
+        Log.i(TAG, "Initializing WalletManager")
+        currentSeed = existingSeed
+        setupWalletKit()
     }
 
-    /**
-     * Khôi phục ví từ mnemonic
-     * @param mnemonic List 12 từ
-     */
-    fun restoreWallet(mnemonic: List<String>) {
-        Log.d(TAG, "=== restoreWallet START ===")
-        Log.d(TAG, "Mnemonic words: ${mnemonic.size}")
+    private fun setupWalletKit() {
+        val blockStoreFile = File(appDir, SPV_FILE)
         
-        try {
-            // Validate mnemonic
-            if (mnemonic.size != 12) {
-                throw IllegalArgumentException("Mnemonic phải có đúng 12 từ")
-            }
-            
-            // Tạo seed từ mnemonic, thời gian tạo = 0 để sync từ đầu
-            val creationTime = System.currentTimeMillis() / 1000
-            val seed = DeterministicSeed(mnemonic, null, "", creationTime)
-            Log.d(TAG, "Seed restored from mnemonic")
-            
-            // Tạo wallet
-            val wallet = Wallet.fromSeed(params, seed, MainNetParams.get())
-            Log.d(TAG, "Wallet restored")
-            
-            // Khởi tạo kit
-            initKit(wallet)
-            
-            Log.d(TAG, "=== restoreWallet SUCCESS ===")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "restoreWallet FAILED", e)
-            throw RuntimeException("Không thể khôi phục ví: ${e.message}", e)
-        }
-    }
-
-    /**
-     * Khởi tạo WalletAppKit với SPV sync
-     */
-    private fun initKit(wallet: Wallet) {
-        Log.d(TAG, "initKit START")
-        
-        val tracker = object : DownloadProgressTracker() {
-            override fun progress(pct: Double, blocksSoFar: Int, date: Date?) {
-                super.progress(pct, blocksSoFar, date)
-                isSyncing = pct < 100.0
-                progressListener?.invoke(pct, blocksSoFar, date)
-                Log.v(TAG, "Sync progress: ${String.format("%.2f", pct)}% - blocks: $blocksSoFar")
-            }
-            
-            override fun doneDownload() {
-                super.doneDownload()
-                isSyncing = false
-                progressListener?.invoke(100.0, 0, null)
-                Log.d(TAG, "Blockchain sync COMPLETED")
-            }
-        }
-
         kit = object : WalletAppKit(params, appDir, WALLET_FILE_PREFIX) {
-            override fun onSetupCompleted() {
-                Log.d(TAG, "WalletAppKit onSetupCompleted")
-                try {
-                    // Cho phép chi tiêu UTXO chưa confirm (bitcoinj 0.17 API)
-                    wallet().setAllowSpendingUnconfirmedTransactions(true)
-                    Log.d(TAG, "Allow spending unconfirmed: true")
-                    
-                    // Thêm wallet đã tạo vào kit
-                    if (wallet != this.wallet()) {
-                        this.wallet().addAllTransactions(wallet)
-                        Log.d(TAG, "Transactions merged")
-                    }
-                    
-                } catch (e: Exception) {
-                    Log.e(TAG, "onSetupCompleted error", e)
+            override fun createWallet(): Wallet {
+                return if (currentSeed != null) {
+                    Log.i(TAG, "Creating wallet from seed")
+                    // BITCOINJ 0.16.3 API - requires ScriptType
+                    Wallet.fromSeed(params, currentSeed!!, ScriptType.P2PKH)
+                } else {
+                    Log.i(TAG, "Creating new random wallet")
+                    Wallet.createDeterministic(params, ScriptType.P2PKH)
                 }
             }
+
+            override fun onSetupCompleted() {
+                Log.i(TAG, "Wallet setup completed")
+                // FIX for 0.16.3 - old method removed
+                wallet().setAcceptRiskyTransactions(true)
+                wallet().allowSpendingUnconfirmedTransactions()
+                
+                // Add balance listener
+                wallet().addCoinsReceivedEventListener { wallet, tx, prevBalance, newBalance ->
+                    Log.d(TAG, "Coins received: ${tx.txId}")
+                    onBalanceChanged?.invoke(newBalance)
+                    onTransactionReceived?.invoke(tx)
+                }
+                
+                wallet().addCoinsSentEventListener { wallet, tx, prevBalance, newBalance ->
+                    Log.d(TAG, "Coins sent: ${tx.txId}")
+                    onBalanceChanged?.invoke(newBalance)
+                }
+            }
+
+            override fun provideBlockStore(file: File): SPVBlockStore {
+                return SPVBlockStore(params, blockStoreFile)
+            }
         }
 
-        // Cấu hình kit
-        kit.setDownloadListener(tracker)
+        // Configure kit
         kit.setAutoSave(true)
         kit.setBlockingStartup(false)
+        kit.setDownloadListener(object : DownloadProgressTracker() {
+            // FIX 0.16.3 - date is Instant?
+            override fun progress(pct: Double, blocksSoFar: Int, date: Instant?) {
+                isSyncing = pct < 100.0
+                val javaDate = date?.let { Date.from(it) }
+                val blocksLeft = kit.peerGroup().mostCommonChainHeight - blocksSoFar
+                onSyncProgress?.invoke(pct, blocksLeft.coerceAtLeast(0), javaDate)
+            }
+
+            override fun doneDownload() {
+                Log.i(TAG, "Blockchain sync complete")
+                isSyncing = false
+                onSyncFinished?.invoke()
+                onSyncProgress?.invoke(100.0, 0, Date())
+            }
+        })
+
         kit.setUserAgent("iBTC", "4.1")
-        
-        // Start async
-        Log.d(TAG, "Starting WalletAppKit...")
+        kit.setMaxConnections(8)
+    }
+
+    fun startAsync() {
+        if (!::kit.isInitialized) setupWalletKit()
+        Log.i(TAG, "Starting WalletAppKit")
         kit.startAsync()
-        
-        try {
-            kit.awaitRunning(30, TimeUnit.SECONDS)
-            Log.d(TAG, "WalletAppKit is RUNNING")
-        } catch (e: Exception) {
-            Log.w(TAG, "awaitRunning timeout, continuing async", e)
+    }
+
+    fun awaitRunning() {
+        kit.awaitRunning()
+        Log.i(TAG, "Wallet is running")
+    }
+
+    fun stop() {
+        if (::kit.isInitialized) {
+            Log.i(TAG, "Stopping wallet")
+            kit.stopAsync()
+            try {
+                kit.awaitTerminated()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping kit", e)
+            }
         }
     }
 
-    fun setProgressListener(listener: (Double, Int, Date?) -> Unit) {
-        this.progressListener = listener
+    // ==================== WALLET CREATION ====================
+
+    fun createNewWallet(): WalletCreationResult {
+        Log.i(TAG, "Creating new wallet with 12 words")
+        val entropy = ByteArray(16)
+        SecureRandom().nextBytes(entropy)
+        val seed = DeterministicSeed(entropy, "", System.currentTimeMillis() / 1000)
+        currentSeed = seed
+        
+        // Stop old kit if running
+        if (::kit.isInitialized && kit.isRunning) stop()
+        
+        setupWalletKit()
+        startAsync()
+        awaitRunning()
+        
+        return WalletCreationResult(
+            mnemonic = seed.mnemonicCode ?: emptyList(),
+            creationTime = Date(seed.creationTimeSeconds * 1000),
+            address = getCurrentReceiveAddress()
+        )
     }
 
-    fun isWalletReady(): Boolean {
+    fun restoreFromMnemonic(mnemonic: List<String>, passphrase: String = "", birthday: Long = 0): Boolean {
         return try {
-            ::kit.isInitialized && kit.isRunning
+            Log.i(TAG, "Restoring wallet from mnemonic")
+            val seed = DeterministicSeed(mnemonic, null, passphrase, birthday)
+            currentSeed = seed
+            
+            if (::kit.isInitialized && kit.isRunning) stop()
+            
+            // Delete old wallet files for clean restore
+            deleteWalletFiles()
+            
+            setupWalletKit()
+            startAsync()
+            awaitRunning()
+            true
         } catch (e: Exception) {
+            Log.e(TAG, "Failed to restore wallet", e)
             false
         }
     }
 
-    fun isSyncing(): Boolean = isSyncing
-
-    fun getBalance(): Coin {
-        return try {
-            if (isWalletReady()) {
-                val balance = kit.wallet().getBalance(Wallet.BalanceType.ESTIMATED)
-                Log.v(TAG, "Balance: $balance")
-                balance
-            } else {
-                Coin.ZERO
-            }
+    private fun deleteWalletFiles() {
+        try {
+            File(appDir, "$WALLET_FILE_PREFIX.wallet").delete()
+            File(appDir, "$WALLET_FILE_PREFIX.wallet.protobuf").delete()
+            File(appDir, SPV_FILE).delete()
         } catch (e: Exception) {
-            Log.e(TAG, "getBalance error", e)
-            Coin.ZERO
+            Log.w(TAG, "Could not delete old wallet files", e)
         }
     }
 
-    fun getAvailableBalance(): Coin {
-        return try {
-            if (isWalletReady()) kit.wallet().getBalance(Wallet.BalanceType.AVAILABLE) else Coin.ZERO
-        } catch (e: Exception) {
-            Coin.ZERO
-        }
+    // ==================== WALLET INFO ====================
+
+    fun isWalletReady(): Boolean = ::kit.isInitialized && kit.isRunning && kit.wallet() != null
+
+    fun getWallet(): Wallet? = if (isWalletReady()) kit.wallet() else null
+
+    fun getBalance(): Coin = getWallet()?.balance ?: Coin.ZERO
+
+    fun getBalanceAvailable(): Coin = getWallet()?.getBalance(Wallet.BalanceType.AVAILABLE) ?: Coin.ZERO
+
+    fun getBalanceEstimated(): Coin = getWallet()?.getBalance(Wallet.BalanceType.ESTIMATED) ?: Coin.ZERO
+
+    fun getBalanceBTC(): Double = getBalance().value.toDouble() / 100_000_000.0
+
+    fun getCurrentReceiveAddress(): String {
+        return getWallet()?.currentReceiveAddress()?.toString() ?: ""
     }
 
-    fun getAddress(): String {
-        return try {
-            val address: Address = if (isWalletReady()) {
-                kit.wallet().currentReceiveAddress()
-            } else {
-                Wallet(params).currentReceiveAddress()
-            }
-            val addrStr = address.toString()
-            Log.d(TAG, "Current address: $addrStr")
-            addrStr
-        } catch (e: Exception) {
-            Log.e(TAG, "getAddress error", e)
-            ""
-        }
-    }
-
-    fun getFreshAddress(): String {
-        return try {
-            if (isWalletReady()) {
-                val addr = kit.wallet().freshReceiveAddress()
-                addr.toString()
-            } else getAddress()
-        } catch (e: Exception) {
-            getAddress()
-        }
+    fun getFreshReceiveAddress(): String {
+        return getWallet()?.freshReceiveAddress()?.toString() ?: ""
     }
 
     fun getMnemonic(): List<String>? {
+        return currentSeed?.mnemonicCode ?: getWallet()?.keyChainSeed?.mnemonicCode
+    }
+
+    fun getCreationTime(): Date {
+        val seconds = getWallet()?.keyChainSeed?.creationTimeSeconds ?: 0
+        return Date(seconds * 1000)
+    }
+
+    fun getNetwork(): String = params.id
+
+    fun isSyncing(): Boolean = isSyncing
+
+    // ==================== TRANSACTIONS ====================
+
+    fun getTransactionHistory(): List<TransactionInfo> {
+        val wallet = getWallet() ?: return emptyList()
+        return wallet.getTransactionsByTime().map { tx ->
+            val value = tx.getValue(wallet)
+            val isSent = value.isNegative
+            val timestamp = tx.updateTime ?: Date(0)
+            
+            TransactionInfo(
+                txId = tx.txId.toString(),
+                amount = value,
+                isSent = isSent,
+                timestamp = timestamp,
+                confirmations = tx.confidence?.depthInBlocks ?: 0,
+                fee = tx.fee,
+                memo = tx.memo
+            )
+        }.sortedByDescending { it.timestamp }
+    }
+
+    fun sendCoins(toAddress: String, amountSatoshis: Long, feePerKb: Long = 2000): SendResult {
         return try {
-            if (isWalletReady()) {
-                kit.wallet().keyChainSeed?.mnemonicCode
-            } else null
+            val wallet = getWallet() ?: throw IllegalStateException("Wallet not ready")
+            val target = Address.fromString(params, toAddress.trim())
+            val amount = Coin.valueOf(amountSatoshis)
+            
+            if (amount.isGreaterThan(getBalanceAvailable())) {
+                return SendResult(false, null, "Insufficient funds")
+            }
+            
+            val request = SendRequest.to(target, amount)
+            request.feePerKb = Coin.valueOf(feePerKb)
+            request.ensureMinRequiredFee = true
+            
+            val result = wallet.sendCoins(kit.peerGroup(), request)
+            val txId = result.tx.txId.toString()
+            
+            Log.i(TAG, "Transaction sent: $txId")
+            SendResult(true, txId, null)
         } catch (e: Exception) {
-            Log.e(TAG, "getMnemonic error", e)
+            Log.e(TAG, "Send failed", e)
+            SendResult(false, null, e.message ?: "Unknown error")
+        }
+    }
+
+    fun estimateFee(amountSatoshis: Long, toAddress: String): Coin? {
+        return try {
+            val wallet = getWallet() ?: return null
+            val target = Address.fromString(params, toAddress)
+            val request = SendRequest.to(target, Coin.valueOf(amountSatoshis))
+            request.feePerKb = Coin.valueOf(1000)
+            wallet.completeTx(request)
+            request.tx.fee
+        } catch (e: Exception) {
             null
         }
     }
 
-    /**
-     * Gửi BTC
-     * @param toAddressStr Địa chỉ nhận
-     * @param amountSat Số satoshi
-     */
-    fun send(toAddressStr: String, amountSat: Long): String {
-        Log.d(TAG, "=== send START ===")
-        Log.d(TAG, "To: $toAddressStr, Amount: $amountSat sat")
+    // ==================== BACKUP & RESTORE ====================
+
+    fun backupWalletToFile(destination: File): Boolean {
+        return try {
+            val wallet = getWallet() ?: return false
+            wallet.saveToFile(destination)
+            Log.i(TAG, "Wallet backed up to ${destination.absolutePath}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Backup failed", e)
+            false
+        }
+    }
+
+    fun restoreWalletFromFile(backupFile: File): Boolean {
+        return try {
+            if (::kit.isInitialized) stop()
+            deleteWalletFiles()
+            
+            val wallet = Wallet.loadFromFile(backupFile)
+            val dest = File(appDir, "$WALLET_FILE_PREFIX.wallet")
+            wallet.saveToFile(dest)
+            
+            setupWalletKit()
+            startAsync()
+            awaitRunning()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Restore from file failed", e)
+            false
+        }
+    }
+
+    // ==================== DATA CLASSES ====================
+
+    data class WalletCreationResult(
+        val mnemonic: List<String>,
+        val creationTime: Date,
+        val address: String
+    )
+
+    data class TransactionInfo(
+        val txId: String,
+        val amount: Coin,
+        val isSent: Boolean,
+        val timestamp: Date,
+        val confirmations: Int,
+        val fee: Coin?,
+        val memo: String?
+    ) {
+        fun getFormattedAmount(): String {
+            val btc = amount.value.toDouble() / 1e8
+            return String.format(Locale.US, "%.8f", kotlin.math.abs(btc))
+        }
         
-        try {
-            // Làm sạch địa chỉ - FIX lỗi Illegal escape '\.'
-            val cleanAddress = toAddressStr.replace("\\s".toRegex(), "").trim()
-            Log.d(TAG, "Clean address: $cleanAddress")
-            
-            if (cleanAddress.isEmpty()) {
-                throw IllegalArgumentException("Địa chỉ nhận trống")
-            }
-            
-            // Kiểm tra địa chỉ có dấu chấm (test)
-            if (cleanAddress.matches(".*\\..*".toRegex())) {
-                Log.w(TAG, "Address contains dot character")
-            }
-
-            val toAddress = Address.fromString(params, cleanAddress)
-            val amount = Coin.valueOf(amountSat)
-            
-            val wallet = kit.wallet()
-            val available = wallet.getBalance(Wallet.BalanceType.AVAILABLE)
-            
-            Log.d(TAG, "Available balance: $available")
-            
-            if (available.isLessThan(amount)) {
-                throw IllegalArgumentException("Số dư không đủ. Có: $available, cần: $amount")
-            }
-
-            val request = SendRequest.to(toAddress, amount)
-            request.feePerKb = Coin.valueOf(DEFAULT_FEE_PER_KB)
-            
-            Log.d(TAG, "Sending transaction...")
-            val sendResult = wallet.sendCoins(kit.peerGroup(), request)
-            val tx = sendResult.tx
-            
-            Log.d(TAG, "=== send SUCCESS ===")
-            Log.d(TAG, "TxID: ${tx.txId}")
-            
-            return tx.txId.toString()
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "=== send FAILED ===", e)
-            throw e
+        fun getFormattedDate(): String {
+            return SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(timestamp)
         }
     }
 
-    fun getTransactions(): List<String> {
-        return try {
-            if (!isWalletReady()) return emptyList()
-            kit.wallet().getTransactionsByTime().map { tx ->
-                val time = tx.updateTime ?: Date()
-                "${tx.txId} | ${time}"
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "getTransactions error", e)
-            emptyList()
-        }
-    }
-
-    fun getProgress(): Double {
-        return try {
-            if (::kit.isInitialized) {
-                val height = kit.peerGroup().mostCommonChainHeight
-                height.toDouble()
-            } else 0.0
-        } catch (e: Exception) {
-            0.0
-        }
-    }
-
-    fun stop() {
-        Log.d(TAG, "Stopping WalletManager...")
-        try {
-            if (::kit.isInitialized && kit.isRunning) {
-                kit.stopAsync()
-                kit.awaitTerminated(10, TimeUnit.SECONDS)
-                Log.d(TAG, "WalletManager stopped")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Stop error", e)
-        }
-    }
+    data class SendResult(
+        val success: Boolean,
+        val txId: String?,
+        val error: String?
+    )
 }
