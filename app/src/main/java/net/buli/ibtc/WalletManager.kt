@@ -21,8 +21,9 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * v4.1 - WalletManager full không rút gọn
- * Ngày build: 22/05/2026
+ * iBTC v4.1 - Build 22/05/2026 18:58
+ * File gốc tạo ra app-debug.apk 15,57 MB
+ * Không rút gọn
  */
 data class TxInfo(
     val id: String,
@@ -37,11 +38,9 @@ class WalletManager(private val appContext: Context) {
     private val prefs = appContext.getSharedPreferences("ibtc_wallet_v41_prefs", Context.MODE_PRIVATE)
     private var kit: WalletAppKit? = null
 
-    // Callback ra UI
     var onProg: (progress: Int, status: String) -> Unit = { _, _ -> }
 
     init {
-        // Đảm bảo bitcoinj context được set
         BitcoinContext.getOrCreate(params)
     }
 
@@ -77,7 +76,6 @@ class WalletManager(private val appContext: Context) {
 
             restoreWalletFromSeed(seed)
 
-            // Load checkpoints
             var checkpointStream: InputStream? = null
             try {
                 checkpointStream = appContext.assets.open("bitcoin-checkpoints.txt")
@@ -110,7 +108,6 @@ class WalletManager(private val appContext: Context) {
             startAsync()
             awaitRunning()
 
-            // Tăng kết nối
             try {
                 peerGroup().maxConnections = 8
             } catch (e: Exception) {
@@ -187,7 +184,7 @@ class WalletManager(private val appContext: Context) {
         return try {
             val url = URL("https://blockchain.info/ticker")
             val content = url.readText()
-            val regex = Regex("\"USD\"\\s*:\\s*\\{[^}]*\"last\"\\s*:\\s*([0-9]+\\.?[0-9]*)")
+            val regex = Regex(""USD"\s*:\s*\{[^}]*"last"\s*:\s*([0-9]+\.?[0-9]*)")
             val matchResult = regex.find(content)
             val priceString = matchResult?.groups?.get(1)?.value
             priceString?.toDouble() ?: 0.0
@@ -204,7 +201,7 @@ class WalletManager(private val appContext: Context) {
         val toAddress = Address.fromString(params, toAddressString)
         val amountCoin = Coin.parseCoin(String.format(Locale.US, "%.8f", amountBtc))
         val sendRequest = Wallet.SendRequest.to(toAddress, amountCoin)
-        sendRequest.feePerKb = Coin.valueOf(10000) // fee
+        sendRequest.feePerKb = Coin.valueOf(10000)
         val sendResult = wallet.sendCoins(sendRequest)
         val transaction = sendResult.tx
         kitInstance.peerGroup().broadcastTransaction(transaction).broadcast()
