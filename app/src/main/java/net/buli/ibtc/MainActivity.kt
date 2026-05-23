@@ -57,4 +57,8 @@ fun App() {
         Spacer(Modifier.height(8.dp))
         LazyColumn {
             items(txs) { t ->
-                Text("${t.type} %.8f BTC".format(t.
+                Text("${t.type} %.8f BTC".format(t.amt))
+            }
+        }
+    }
+}
