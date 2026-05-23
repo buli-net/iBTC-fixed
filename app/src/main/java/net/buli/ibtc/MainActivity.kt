@@ -38,7 +38,6 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -188,7 +187,6 @@ fun MainScreen() {
                             .fillMaxSize()
                             .padding(16.dp)
                     ) {
-                        // Balance Section - V4.1 MỜ
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -198,7 +196,7 @@ fun MainScreen() {
                                 text = if (isBalanceHidden) "••••••••" else String.format(Locale.US, "%.8f", btcBalance),
                                 style = MaterialTheme.typography.displayMedium,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color.White.copy(alpha = 0.6f), // CHÍNH LÀ DÒNG GÂY MỜ
+                                color = Color.White.copy(alpha = 0.6f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
