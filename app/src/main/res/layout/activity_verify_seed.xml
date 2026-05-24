@@ -8,9 +8,10 @@
         android:layout_width="wrap_content" android:layout_height="wrap_content"/>
 
     <EditText android:id="@+id/etVerify" android:layout_marginTop="24dp"
-        android:hint="Nhập lại 12 từ" android:background="@color/safepal_card"
-        android:padding="16dp" android:textColor="@color/safepal_text"
-        android:layout_width="match_parent" android:layout_height="120dp"/>
+        android:hint="Nhập lại 12 từ, cách nhau bằng space"
+        android:background="@color/safepal_card" android:padding="16dp"
+        android:textColor="@color/safepal_text" android:gravity="top"
+        android:layout_width="match_parent" android:layout_height="150dp"/>
 
     <Button android:id="@+id/btnVerify" android:layout_marginTop="24dp"
         android:text="Xác nhận" android:backgroundTint="@color/safepal_purple"
