@@ -18,8 +18,9 @@ class WalletManager(private val context: Context) {
 
     fun startWallet() {
         try {
-            // FIX LỖI: dùng đúng Context của bitcoinj, không phải android.content.Context
-            org.bitcoinj.core.Context.propagate(params)
+            // FIX LỖI CUỐI: tạo Context bitcoinj đúng cách cho version 0.16.2
+            org.bitcoinj.core.Context.getOrCreate(params)
+            // Cài BouncyCastle để tránh crash trên Android 12+
             java.security.Security.insertProviderAt(org.spongycastle.jce.provider.BouncyCastleProvider(), 1)
         } catch (e: Exception) {}
 
