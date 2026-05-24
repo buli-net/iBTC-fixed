@@ -1,46 +1,28 @@
 package net.buli.ibtc
-
 import android.content.Intent
 import android.os.Bundle
 import android.widget.TextView
-import android.widget.Toast
-import org.bitcoinj.params.MainNetParams
-import org.bitcoinj.script.Script.ScriptType
-import org.bitcoinj.wallet.DeterministicSeed
-import org.bitcoinj.wallet.Wallet
+import org.json.JSONObject
+import java.net.URL
+import kotlin.concurrent.thread
 
 class MainActivity : BaseNavActivity() {
-    private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-
-        val seedPhrase = prefs.getString("seed", "")!!.trim()
-        val words = seedPhrase.split(" ").filter { it.isNotBlank() }
-        val seed = DeterministicSeed(words, null, "", 0L)
-        val wallet = Wallet.fromSeed(MainNetParams.get(), seed, ScriptType.P2PKH)
-        val address = wallet.currentReceiveAddress().toString()
-
-        findViewById<TextView>(R.id.tvAddress).text = address
-        findViewById<TextView>(R.id.tvUsd).text = "$0.00"
-        findViewById<TextView>(R.id.tvBalance).text = "≈ 0 BTC"
-        findViewById<TextView>(R.id.tvBtcAmount)?.text = "0 BTC"
-
-        findViewById<TextView>(R.id.tvAddress).setOnClickListener {
-            getSystemService(android.content.ClipboardManager::class.java)
-                .setPrimaryClip(android.content.ClipData.newPlainText("addr", address))
-            Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
-        }
-
-        findViewById<android.view.View>(R.id.btnSend).setOnClickListener {
-            startActivity(Intent(this, SendActivity::class.java))
-        }
-        findViewById<android.view.View>(R.id.btnReceive).setOnClickListener {
-            startActivity(Intent(this, ReceiveActivity::class.java))
-        }
-
-        setupNav(R.id.navWallet)
+    private val prefs by lazy { getSharedPreferences("ibtc_prefs",0) }
+    private var btcBalance=0.0459968
+    private var hide=false
+    override fun onCreate(b:Bundle?){super.onCreate(b);setContentView(R.layout.activity_main);setupNav(R.id.navWallet)
+        findViewById<android.view.View>(R.id.btnSend).setOnClickListener{startActivity(Intent(this,SendActivity::class.java))}
+        findViewById<android.view.View>(R.id.btnReceive).setOnClickListener{startActivity(Intent(this,ReceiveActivity::class.java))}
+        findViewById<android.view.View>(R.id.btnEye).setOnClickListener{hide=!hide;update(0.0,0.0)}
+        load()
     }
-    // KHÔNG còn onPause/onResume ở đây nữa – BaseNavActivity lo hết
+    private fun load(){thread{try{val j=URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true").readText();val o=JSONObject(j).getJSONObject("bitcoin");val p=o.getDouble("usd");val c=o.getDouble("usd_24h_change");runOnUiThread{update(p,c)}}catch(_:Exception){}}}
+    private fun update(price:Double,change:Double){
+        val usd=btcBalance*price;val today=usd*change/100
+        val tvUsd=findViewById<TextView>(R.id.tvUsdBalance);val tvBtc=findViewById<TextView>(R.id.tvBtcBalance);val tvT=findViewById<TextView>(R.id.tvTodayChange)
+        val tvP=findViewById<TextView>(R.id.tvBtcPrice);val tvC=findViewById<TextView>(R.id.tvBtcChange);val tvA=findViewById<TextView>(R.id.tvBtcAmount);val tvU=findViewById<TextView>(R.id.tvBtcUsd)
+        if(hide){tvUsd.text="****";tvBtc.text="**** BTC";tvA.text="****";tvU.text="****"}else{tvUsd.text="$${String.format("%,.2f",usd)}";tvBtc.text="$btcBalance BTC";tvA.text=btcBalance.toString();tvU.text="$${String.format("%,.2f",usd)}"}
+        tvT.text="Hôm nay ${if(today>=0)"+" else ""}$${String.format("%.2f",today)} ${if(change>=0)"▲" else "▼"}${String.format("%.2f",kotlin.math.abs(change))}%";tvT.setTextColor(if(change>=0)0xFF00C076.toInt()else0xFFFF4444.toInt())
+        tvP.text="$${String.format("%,.2f",price)}";tvC.text="${if(change>=0)"+" else ""}${String.format("%.2f",change)}%";tvC.setTextColor(if(change>=0)0xFF00C076.toInt()else0xFFFF4444.toInt())
+    }
 }
