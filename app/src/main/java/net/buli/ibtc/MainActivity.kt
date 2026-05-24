@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -15,127 +17,181 @@ import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
+    // Views SafePal
     private lateinit var tvBalance: TextView
+    private lateinit var tvBalanceUsd: TextView
     private lateinit var tvStatus: TextView
     private lateinit var tvAddress: TextView
-    private lateinit var btnCopy: ImageButton
-    private lateinit var btnReceive: Button
-    private lateinit var btnSend: Button
-    private lateinit var lvTransactions: ListView
-    private lateinit var progressSync: ProgressBar
+    private lateinit var btnReceive: LinearLayout
+    private lateinit var btnSend: LinearLayout
+    private lateinit var lvTokens: ListView
 
     private lateinit var walletManager: WalletManager
-    private val txList = mutableListOf<String>()
-    private lateinit var adapter: ArrayAdapter<String>
+    private val tokenList = mutableListOf<TokenItem>()
+    private lateinit var tokenAdapter: TokenAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Ánh xạ ID mới
         tvBalance = findViewById(R.id.tvBalance)
+        tvBalanceUsd = findViewById(R.id.tvBalanceUsd)
         tvStatus = findViewById(R.id.tvStatus)
         tvAddress = findViewById(R.id.tvAddress)
-        btnCopy = findViewById(R.id.btnCopy)
         btnReceive = findViewById(R.id.btnReceive)
         btnSend = findViewById(R.id.btnSend)
-        lvTransactions = findViewById(R.id.lvTransactions)
-        progressSync = findViewById(R.id.progressSync)
+        lvTokens = findViewById(R.id.lvTokens)
 
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, txList)
-        lvTransactions.adapter = adapter
+        // Adapter cho list token
+        tokenAdapter = TokenAdapter(this, tokenList)
+        lvTokens.adapter = tokenAdapter
 
-        tvStatus.text = "Đang khởi tạo ví..."
-        progressSync.visibility = ProgressBar.VISIBLE
-        tvAddress.text = "Đang tạo..."
+        tvStatus.text = "Đang khởi tạo..."
+        tvAddress.text = "Đang tạo ví..."
 
         walletManager = WalletManager(this)
 
+        // Cập nhật số dư - chuẩn Bitcoin 8 số
         walletManager.onBalanceChanged = { balance ->
             runOnUiThread {
-                tvBalance.text = formatBTC(balance) // CHUẨN 8 SỐ
-                tvStatus.text = "Hoạt động"
-                progressSync.visibility = ProgressBar.GONE
+                tvBalance.text = formatBTC(balance)
+                tvBalanceUsd.text = "≈ $0.00" // sau này thêm giá live
+                tvStatus.text = "Sẵn sàng"
+                updateTokenList(balance)
             }
         }
 
         walletManager.onTransaction = { tx ->
-            runOnUiThread { addTransactionToList(tx) }
+            runOnUiThread {
+                // có thể refresh list ở đây
+            }
         }
 
+        // Khởi động ví
         Thread {
             try {
                 walletManager.startWallet()
-                Thread.sleep(6000)
+                Thread.sleep(5000)
                 runOnUiThread {
                     val addr = walletManager.getReceiveAddress()
                     tvAddress.text = addr
-                    tvStatus.text = if (addr.startsWith("1") || addr.startsWith("3") || addr.startsWith("bc1")) "Sẵn sàng" else "Đang tạo ví..."
-                    progressSync.visibility = ProgressBar.GONE
-                    try { walletManager.getTransactions().forEach { addTransactionToList(it) } } catch (_: Exception) {}
+                    tvAddress.setOnClickListener {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("BTC", addr))
+                        Toast.makeText(this, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
+                    }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     tvStatus.text = "Lỗi khởi tạo"
-                    tvAddress.text = "Lỗi"
-                    progressSync.visibility = ProgressBar.GONE
+                    Toast.makeText(this, "Lỗi: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }.start()
-
-        btnCopy.setOnClickListener {
-            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("BTC", tvAddress.text))
-            Toast.makeText(this, "Đã copy địa chỉ", Toast.LENGTH_SHORT).show()
-        }
 
         btnReceive.setOnClickListener { showReceiveDialog() }
         btnSend.setOnClickListener { showSendDialog() }
     }
 
-    // HÀM CHUẨN BITCOIN - tối đa 8 số, bỏ 0 thừa
+    // Format chuẩn Bitcoin: tối đa 8 số, bỏ 0 thừa
     private fun formatBTC(coin: Coin): String {
-        // toPlainString() của bitcoinj đã trả về đúng chuẩn (vd: "0.00000001")
         return "${coin.toPlainString()} BTC"
     }
 
-    private fun showReceiveDialog() { /* giữ nguyên */ 
+    private fun updateTokenList(balance: Coin) {
+        tokenList.clear()
+        tokenList.add(
+            TokenItem(
+                name = "Bitcoin",
+                symbol = "BTC",
+                amount = formatBTC(balance),
+                usd = "$0.00"
+            )
+        )
+        tokenAdapter.notifyDataSetChanged()
+    }
+
+    private fun showReceiveDialog() {
         try {
             val view = LayoutInflater.from(this).inflate(R.layout.dialog_receive, null)
             val tvAddr = view.findViewById<TextView>(R.id.tvReceiveAddr)
             tvAddr.text = walletManager.getReceiveAddress()
-            AlertDialog.Builder(this).setTitle("Nhận BTC").setView(view)
-                .setPositiveButton("Copy") { _, _ ->
+
+            AlertDialog.Builder(this)
+               .setTitle("Nhận BTC")
+               .setView(view)
+               .setPositiveButton("Copy") { _, _ ->
                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("BTC", tvAddr.text))
-                }.show()
-        } catch (_: Exception) {}
+                    Toast.makeText(this, "Đã copy", Toast.LENGTH_SHORT).show()
+                }
+               .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ví chưa sẵn sàng", Toast.LENGTH_SHORT).show()
+        }
     }
 
-    private fun showSendDialog() { /* giữ nguyên */ 
-        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(50,40,50,10) }
+    private fun showSendDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(50, 40, 50, 10)
+        }
         val etAddress = EditText(this).apply { hint = "Địa chỉ BTC" }
-        val etAmount = EditText(this).apply { hint = "Số BTC"; inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL }
-        layout.addView(etAddress); layout.addView(etAmount)
-        AlertDialog.Builder(this).setTitle("Gửi BTC").setView(layout)
-            .setPositiveButton("Gửi") { _, _ ->
+        val etAmount = EditText(this).apply {
+            hint = "Số BTC"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        }
+        layout.addView(etAddress)
+        layout.addView(etAmount)
+
+        AlertDialog.Builder(this)
+           .setTitle("Gửi BTC")
+           .setView(layout)
+           .setPositiveButton("Gửi") { _, _ ->
                 val addr = etAddress.text.toString().trim()
                 val amt = etAmount.text.toString().toDoubleOrNull()
-                if (addr.isNotEmpty() && amt != null) {
-                    Thread { try { walletManager.sendCoins(addr, amt) } catch (_: Exception) {} }.start()
+                if (addr.isNotEmpty() && amt!= null && amt > 0) {
+                    tvStatus.text = "Đang gửi..."
+                    Thread {
+                        try {
+                            walletManager.sendCoins(addr, amt)
+                            runOnUiThread { tvStatus.text = "Đã gửi" }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                Toast.makeText(this, "Lỗi: ${e.message}", Toast.LENGTH_LONG).show()
+                                tvStatus.text = "Lỗi"
+                            }
+                        }
+                    }.start()
                 }
-            }.setNegativeButton("Hủy", null).show()
+            }
+           .setNegativeButton("Hủy", null)
+           .show()
     }
 
-    private fun addTransactionToList(tx: Transaction) {
-        try {
-            val date = SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(Date(tx.updateTime?.time ?: System.currentTimeMillis()))
-            val valueCoin = try { walletManager.getTxValue(tx) } catch (_: Exception) { Coin.ZERO }
-            val valueStr = valueCoin.toPlainString() // CHUẨN
-            val type = if (valueCoin.isPositive) "Nhận" else "Gửi"
-            txList.add(0, "$date - $type $valueStr BTC")
-            adapter.notifyDataSetChanged()
-        } catch (_: Exception) {}
+    override fun onDestroy() {
+        super.onDestroy()
+        try { walletManager.stopWallet() } catch (_: Exception) {}
     }
 
-    override fun onDestroy() { super.onDestroy(); try { walletManager.stopWallet() } catch (_: Exception) {} }
+    // Data class cho token
+    data class TokenItem(val name: String, val symbol: String, val amount: String, val usd: String)
+
+    // Adapter cho ListView SafePal
+    inner class TokenAdapter(private val context: Context, private val items: List<TokenItem>) : BaseAdapter() {
+        override fun getCount(): Int = items.size
+        override fun getItem(position: Int): Any = items[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val view = convertView?: LayoutInflater.from(context).inflate(R.layout.item_token, parent, false)
+            val item = items[position]
+            view.findViewById<TextView>(R.id.tvName).text = item.name
+            view.findViewById<TextView>(R.id.tvSymbol).text = item.symbol
+            view.findViewById<TextView>(R.id.tvAmount).text = item.amount
+            view.findViewById<TextView>(R.id.tvUsd).text = item.usd
+            return view
+        }
+    }
 }
