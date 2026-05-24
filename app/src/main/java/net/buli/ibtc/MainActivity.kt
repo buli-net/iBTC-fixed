@@ -21,24 +21,30 @@ class MainActivity : AppCompatActivity() {
         val prefs = SecureStorage.prefs(this)
         val address = prefs.getString("address", "") ?: ""
 
-        findViewById<TextView>(R.id.tvAddress).text = address
+        val tvAddress = findViewById<TextView>(R.id.tvAddress)
+        val tvBalance = findViewById<TextView>(R.id.tvBalance)
+        val btnSettings = findViewById<Button>(R.id.btnSettings)
+        val btnSend = findViewById<Button>(R.id.btnSend)
+        val btnReceive = findViewById<Button>(R.id.btnReceive)
 
-        findViewById<Button>(R.id.btnSettings).setOnClickListener {
+        tvAddress.text = address
+
+        btnSettings.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
-        findViewById<Button>(R.id.btnSend).setOnClickListener {
+        btnSend.setOnClickListener {
             startActivity(Intent(this, SendActivity::class.java))
         }
 
-        findViewById<Button>(R.id.btnReceive).setOnClickListener {
+        btnReceive.setOnClickListener {
             Toast.makeText(this, "Chức năng Nhận đang phát triển", Toast.LENGTH_SHORT).show()
         }
 
-        loadBalance(address)
+        loadBalance(address, tvBalance)
     }
 
-    private fun loadBalance(address: String) {
+    private fun loadBalance(address: String, tvBalance: TextView) {
         scope.launch {
             val balance = withContext(Dispatchers.IO) {
                 try {
@@ -53,7 +59,7 @@ class MainActivity : AppCompatActivity() {
                     0.0
                 }
             }
-            findViewById<TextView>(R.id.tvBalance).text = String.format("%.8f BTC", balance)
+            tvBalance.text = String.format("%.8f BTC", balance)
         }
     }
 }
