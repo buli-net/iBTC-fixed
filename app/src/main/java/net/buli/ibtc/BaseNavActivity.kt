@@ -10,7 +10,6 @@ abstract class BaseNavActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
     private var isNavigating = false
 
-    // --- KHÓA CHUNG CHO TẤT CẢ TAB ---
     override fun onResume() {
         super.onResume()
         if (prefs.getBoolean("locked", false) && prefs.getBoolean("has_wallet", false)) {
@@ -20,7 +19,6 @@ abstract class BaseNavActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // chỉ khóa khi ra ngoài app, không khóa khi chuyển tab nội bộ
         if (!isNavigating) {
             prefs.edit().putBoolean("locked", true).apply()
         } else {
@@ -54,6 +52,19 @@ abstract class BaseNavActivity : AppCompatActivity() {
             val color = if (navId == selectedId) purple else gray
             findViewById<ImageView>(icId)?.setColorFilter(color)
             findViewById<TextView>(tvId)?.setTextColor(color)
+        }
+    }
+
+    // FIX BACK: về Ví thay vì thoát app
+    override fun onBackPressed() {
+        if (this !is MainActivity) {
+            isNavigating = true
+            prefs.edit().putBoolean("locked", false).apply()
+            startActivity(Intent(this, MainActivity::class.java))
+            overridePendingTransition(0, 0)
+            finish()
+        } else {
+            super.onBackPressed()
         }
     }
 }
