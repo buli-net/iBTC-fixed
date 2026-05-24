@@ -5,21 +5,19 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import org.bitcoinj.crypto.MnemonicCode
-import java.security.SecureRandom
 
 class BackupSeedActivity : AppCompatActivity() {
+    // 12 từ test - sau này thay bằng bitcoinj thật
+    private val testSeed = "abandon ability able about above absent absorb abstract absurd abuse access accident"
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_backup_seed)
 
-        val entropy = ByteArray(16)
-        SecureRandom().nextBytes(entropy)
-        val seedWords = MnemonicCode.INSTANCE.toMnemonic(entropy)
-
-        findViewById<TextView>(R.id.tvSeed).text = seedWords.joinToString("\n")
+        findViewById<TextView>(R.id.tvSeed).text = testSeed.replace(" ", "\n")
+        
         getSharedPreferences("ibtc_prefs", MODE_PRIVATE).edit()
-            .putString("temp_seed", seedWords.joinToString(" ")).apply()
+            .putString("temp_seed", testSeed).apply()
 
         findViewById<Button>(R.id.btnNext).setOnClickListener {
             startActivity(Intent(this, VerifySeedActivity::class.java))
