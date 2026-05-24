@@ -1,18 +1,133 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical" android:padding="16dp"
-    android:layout_width="match_parent" android:layout_height="match_parent">
-    <TextView android:id="@+id/tvBalance" android:textSize="28sp" android:textStyle="bold" android:text="0.00 BTC" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    <TextView android:id="@+id/tvStatus" android:text="Chưa đồng bộ" android:layout_marginTop="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    <ProgressBar android:id="@+id/progressSync" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone"/>
-    <LinearLayout android:orientation="horizontal" android:layout_marginTop="12dp" android:layout_width="match_parent" android:layout_height="wrap_content">
-        <TextView android:id="@+id/tvAddress" android:layout_weight="1" android:text="1..." android:ellipsize="middle" android:singleLine="true" android:layout_width="0dp" android:layout_height="wrap_content"/>
-        <ImageButton android:id="@+id/btnCopy" android:src="@android:drawable/stat_sys_download_done" android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Copy" android:layout_width="48dp" android:layout_height="48dp"/>
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/safepal_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <!-- Top bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="iBTC Wallet"
+            android:textColor="@color/safepal_text"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:src="@android:drawable/ic_menu_search" />
     </LinearLayout>
-    <LinearLayout android:orientation="horizontal" android:layout_marginTop="16dp" android:layout_width="match_parent" android:layout_height="wrap_content">
-        <Button android:id="@+id/btnReceive" android:text="Nhận" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"/>
-        <Button android:id="@+id/btnSend" android:text="Gửi" android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content"/>
+
+    <!-- Balance Card (giống SafePal) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:background="@drawable/card_bg"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Tổng tài sản"
+            android:textColor="@color/safepal_gray"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvBalance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="0 BTC"
+            android:textColor="@color/safepal_text"
+            android:textSize="32sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvBalanceUsd"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="≈ $0.00"
+            android:textColor="@color/safepal_gray"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/tvAddress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:ellipsize="middle"
+            android:singleLine="true"
+            android:text="16pCauRkHEf35uqi1eSgG4sLTKNBSyv9F6"
+            android:textColor="@color/safepal_gray"
+            android:textSize="12sp" />
     </LinearLayout>
-    <TextView android:text="Lịch sử" android:textStyle="bold" android:layout_marginTop="20dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    <ListView android:id="@+id/lvTransactions" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"/>
+
+    <!-- 4 nút tròn SafePal -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <LinearLayout android:id="@+id/btnSend" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/circle_purple" android:padding="12dp" android:src="@android:drawable/ic_menu_upload" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Gửi" android:textColor="@color/safepal_text" android:textSize="12sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:id="@+id/btnReceive" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/circle_purple" android:padding="12dp" android:src="@android:drawable/ic_menu_save" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Nhận" android:textColor="@color/safepal_text" android:textSize="12sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/circle_blue" android:padding="12dp" android:src="@android:drawable/ic_menu_add" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Mua" android:textColor="@color/safepal_text" android:textSize="12sp"/>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:gravity="center" android:orientation="vertical">
+            <ImageView android:layout_width="48dp" android:layout_height="48dp" android:background="@drawable/circle_blue" android:padding="12dp" android:src="@android:drawable/ic_menu_rotate" />
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Swap" android:textColor="@color/safepal_text" android:textSize="12sp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- List coin -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
+        android:text="Tài sản"
+        android:textColor="@color/safepal_text"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <ListView
+        android:id="@+id/lvTokens"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1"
+        android:divider="@null"
+        android:dividerHeight="8dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:text="Sẵn sàng"
+        android:textColor="@color/safepal_green"
+        android:textSize="12sp" />
 </LinearLayout>
