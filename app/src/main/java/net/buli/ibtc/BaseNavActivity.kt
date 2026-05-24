@@ -8,21 +8,20 @@ import androidx.core.content.ContextCompat
 
 abstract class BaseNavActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
-    private var isNavigating = false
 
+    // Luôn khóa khi rời màn hình
+    override fun onPause() {
+        super.onPause()
+        if (prefs.getBoolean("has_wallet", false)) {
+            prefs.edit().putBoolean("locked", true).apply()
+        }
+    }
+
+    // Mở lại là bắt nhập pass
     override fun onResume() {
         super.onResume()
         if (prefs.getBoolean("locked", false) && prefs.getBoolean("has_wallet", false)) {
             startActivity(Intent(this, LockActivity::class.java))
-        }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        if (!isNavigating) {
-            prefs.edit().putBoolean("locked", true).apply()
-        } else {
-            isNavigating = false
         }
     }
 
@@ -42,8 +41,8 @@ abstract class BaseNavActivity : AppCompatActivity() {
             val (icId, tvId) = ids
             findViewById<android.view.View>(navId)?.setOnClickListener {
                 if (navId != selectedId) {
-                    isNavigating = true
-                    prefs.edit().putBoolean("locked", false).apply()
+                    // ÉP KHÓA trước khi chuyển tab
+                    prefs.edit().putBoolean("locked", true).apply()
                     startActivity(Intent(this, cls))
                     overridePendingTransition(0, 0)
                     finish()
@@ -55,11 +54,10 @@ abstract class BaseNavActivity : AppCompatActivity() {
         }
     }
 
-    // FIX BACK: về Ví thay vì thoát app
+    // Back cũng ép pass
     override fun onBackPressed() {
         if (this !is MainActivity) {
-            isNavigating = true
-            prefs.edit().putBoolean("locked", false).apply()
+            prefs.edit().putBoolean("locked", true).apply()
             startActivity(Intent(this, MainActivity::class.java))
             overridePendingTransition(0, 0)
             finish()
