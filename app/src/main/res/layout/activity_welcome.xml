@@ -1,20 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@color/safepal_bg" android:gravity="center"
-    android:orientation="vertical" android:padding="32dp">
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/safepal_bg"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="32dp">
 
-    <TextView android:text="iBTC Wallet" android:textSize="28sp"
-        android:textStyle="bold" android:textColor="@color/safepal_purple"
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_marginBottom="64dp"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        android:text="iBTC Wallet"
+        android:textColor="@color/safepal_purple"
+        android:textSize="28sp"
+        android:textStyle="bold" />
 
-    <Button android:id="@+id/btnCreate" android:layout_width="match_parent"
-        android:layout_height="56dp" android:text="Tạo ví mới"
-        android:backgroundTint="@color/safepal_purple" android:textAllCaps="false"/>
+    <Button
+        android:id="@+id/btnCreate"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:backgroundTint="@color/safepal_purple"
+        android:text="Tạo ví mới"
+        android:textAllCaps="false" />
 
-    <Button android:id="@+id/btnImport" android:layout_width="match_parent"
-        android:layout_height="56dp" android:layout_marginTop="16dp"
-        android:text="Khôi phục ví" android:backgroundTint="@color/safepal_card"
-        android:textAllCaps="false"/>
+    <Button
+        android:id="@+id/btnImport"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="16dp"
+        android:backgroundTint="@color/safepal_card"
+        android:text="Khôi phục ví"
+        android:textAllCaps="false" />
 </LinearLayout>
