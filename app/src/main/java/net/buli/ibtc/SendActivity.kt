@@ -10,69 +10,62 @@ import java.net.URL
 import kotlin.concurrent.thread
 
 class SendActivity : BaseNavActivity() {
-    private var feeSlow=5; private var feeNormal=8; private var feeFast=12; private var selectedRate=8
+    private var feeSlow = 5
+    private var feeNormal = 8
+    private var feeFast = 12
+    private var selectedRate = 8
 
-    private val qrLauncher = registerForActivityResult(ScanContract()) { res ->
-        if (res.contents != null) findViewById<EditText>(R.id.etAddress).setText(res.contents)
+    private val qrLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            findViewById<EditText>(R.id.etAddress).setText(result.contents)
+        }
     }
 
-    override fun onCreate(b: Bundle?) {
-        super.onCreate(b)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_send)
 
         findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
         findViewById<ImageView>(R.id.btnScan).setOnClickListener {
-            qrLauncher.launch(ScanOptions().setPrompt("Quét địa chỉ BTC"))
+            qrLauncher.launch(ScanOptions().setPrompt("Quét địa chỉ BTC").setBeepEnabled(false))
         }
 
-        val rg = findViewById<RadioGroup>(R.id.rgFee)
+        val rgFee = findViewById<RadioGroup>(R.id.rgFee)
         val etCustom = findViewById<EditText>(R.id.etCustomFee)
-        val tvInfo = findViewById<TextView>(R.id.tvFeeInfo)
+        val tvFeeInfo = findViewById<TextView>(R.id.tvFeeInfo)
 
-        fun update() {
-            val vsize = 140
-            val feeSat = selectedRate * vsize
+        fun updateFee() {
+            val feeSat = selectedRate * 140
             val feeBtc = feeSat / 100_000_000.0
-            tvInfo.text = "≈ $feeSat sat ($feeBtc BTC) – ${selectedRate} sat/vB"
+            tvFeeInfo.text = "≈ $feeSat sat ($feeBtc BTC) – ${selectedRate} sat/vB"
         }
 
-        rg.setOnCheckedChangeListener { _, id ->
+        rgFee.setOnCheckedChangeListener { _, id ->
             etCustom.visibility = if (id == R.id.rbCustom) View.VISIBLE else View.GONE
-            selectedRate = when(id) {
+            selectedRate = when (id) {
                 R.id.rbSlow -> feeSlow
                 R.id.rbFast -> feeFast
                 R.id.rbCustom -> etCustom.text.toString().toIntOrNull() ?: feeNormal
                 else -> feeNormal
             }
-            update()
+            updateFee()
         }
-        etCustom.addTextChangedListener(object: android.text.TextWatcher{
-            override fun afterTextChanged(s: android.text.Editable?) {
-                if(rg.checkedRadioButtonId==R.id.rbCustom){ selectedRate=s.toString().toIntOrNull()?:feeNormal; update() }
-            }
-            override fun beforeTextChanged(a: CharSequence?,b:Int,c:Int,d:Int){}
-            override fun onTextChanged(a: CharSequence?,b:Int,c:Int,d:Int){}
-        })
 
-        // LẤY PHÍ REAL
         thread {
             try {
                 val json = URL("https://mempool.space/api/v1/fees/recommended").readText()
-                val o = JSONObject(json)
-                feeFast = o.getInt("fastestFee")
-                feeNormal = o.getInt("halfHourFee")
-                feeSlow = o.getInt("hourFee")
+                val obj = JSONObject(json)
+                feeFast = obj.getInt("fastestFee")
+                feeNormal = obj.getInt("halfHourFee")
+                feeSlow = obj.getInt("hourFee")
                 runOnUiThread {
                     findViewById<RadioButton>(R.id.rbSlow).text = "Chậm (~${feeSlow} sat/vB)"
                     findViewById<RadioButton>(R.id.rbNormal).text = "Thường (~${feeNormal} sat/vB)"
                     findViewById<RadioButton>(R.id.rbFast).text = "Nhanh (~${feeFast} sat/vB)"
-                    selectedRate = feeNormal; update()
+                    selectedRate = feeNormal
+                    updateFee()
                 }
-            } catch (_:Exception){}
-        }
-
-        findViewById<Button>(R.id.btnNext).setOnClickListener {
-            Toast.makeText(this, "Sẽ gửi với phí $selectedRate sat/vB", Toast.LENGTH_SHORT).show()
+            } catch (_: Exception) {}
         }
     }
 }
