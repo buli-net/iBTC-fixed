@@ -7,6 +7,27 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 
 abstract class BaseNavActivity : AppCompatActivity() {
+    private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
+    private var isNavigating = false
+
+    // --- KHÓA CHUNG CHO TẤT CẢ TAB ---
+    override fun onResume() {
+        super.onResume()
+        if (prefs.getBoolean("locked", false) && prefs.getBoolean("has_wallet", false)) {
+            startActivity(Intent(this, LockActivity::class.java))
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // chỉ khóa khi ra ngoài app, không khóa khi chuyển tab nội bộ
+        if (!isNavigating) {
+            prefs.edit().putBoolean("locked", true).apply()
+        } else {
+            isNavigating = false
+        }
+    }
+
     protected fun setupNav(selectedId: Int) {
         val purple = ContextCompat.getColor(this, R.color.safepal_purple)
         val gray = ContextCompat.getColor(this, R.color.safepal_gray)
@@ -23,10 +44,10 @@ abstract class BaseNavActivity : AppCompatActivity() {
             val (icId, tvId) = ids
             findViewById<android.view.View>(navId)?.setOnClickListener {
                 if (navId != selectedId) {
-                    // tắt khóa tạm để không bị LockActivity nhảy lên khi chuyển tab
-                    getSharedPreferences("ibtc_prefs",0).edit().putBoolean("locked",false).apply()
+                    isNavigating = true
+                    prefs.edit().putBoolean("locked", false).apply()
                     startActivity(Intent(this, cls))
-                    overridePendingTransition(0,0)
+                    overridePendingTransition(0, 0)
                     finish()
                 }
             }
