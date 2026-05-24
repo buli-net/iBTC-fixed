@@ -19,33 +19,36 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val prefs = getSharedPreferences("ibtc_prefs", MODE_PRIVATE)
-        val seedPhrase = prefs.getString("seed","")!!.trim()
+        val seedPhrase = prefs.getString("seed", "")!!.trim()
 
-        // === TẠO VÍ DETERMINISTIC ===
+        // === FIX: dùng constructor List<String> ===
+        val words = seedPhrase.split(" ").filter { it.isNotBlank() }
         val params: NetworkParameters = MainNetParams.get()
-        val seed = DeterministicSeed(seedPhrase, null, "", 0L) // thời gian = 0 để luôn giống nhau
-        val wallet = Wallet.fromSeed(params, seed, ScriptType.P2PKH) // địa chỉ Legacy bắt đầu bằng '1'
+        val seed = DeterministicSeed(words, null, "", 0L)
+        val wallet = Wallet.fromSeed(params, seed, ScriptType.P2PKH)
         val address = wallet.currentReceiveAddress().toString()
 
+        // Cập nhật UI SafePal
         findViewById<TextView>(R.id.tvAddress).text = address
-        findViewById<TextView>(R.id.tvBalance).text = "0 BTC"
+        findViewById<TextView>(R.id.tvUsd).text = "$0.00"
+        findViewById<TextView>(R.id.tvBalance).text = "≈ 0 BTC"
+        findViewById<TextView>(R.id.tvBtcAmount)?.text = "0 BTC"
 
+        // Copy địa chỉ
         findViewById<TextView>(R.id.tvAddress).setOnClickListener {
             getSystemService(android.content.ClipboardManager::class.java)
                 .setPrimaryClip(android.content.ClipData.newPlainText("addr", address))
-            Toast.makeText(this,"Đã sao chép",Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Đã sao chép", Toast.LENGTH_SHORT).show()
         }
 
-        // Lấy giá
+        // Lấy giá BTC (không bắt buộc)
         scope.launch {
             try {
-                val json = withContext(Dispatchers.IO){
+                withContext(Dispatchers.IO) {
                     java.net.URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd")
                         .readText()
                 }
-                val price = json.substringAfter("\"usd\":").substringBefore("}").toDouble()
-                findViewById<TextView>(R.id.tvUsd).text = "≈ \$0.00"
-            } catch (_:Exception){}
+            } catch (_: Exception) {}
         }
     }
 }
