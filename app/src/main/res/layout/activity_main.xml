@@ -62,6 +62,7 @@
         <TextView android:text="Token" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold"
             android:layout_marginTop="32dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
 
+        <!-- CARD BTC CÓ GIÁ + % -->
         <LinearLayout android:id="@+id/cardBtc" android:background="#1A1F2E"
             android:orientation="horizontal" android:gravity="center_vertical"
             android:padding="16dp" android:layout_marginTop="12dp"
@@ -72,12 +73,18 @@
                 android:layout_weight="1" android:layout_width="0dp" android:layout_height="wrap_content">
                 <TextView android:text="BTC" android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-                <TextView android:text="Bitcoin" android:textColor="#9E9E9E" android:textSize="13sp"
-                    android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                <LinearLayout android:orientation="horizontal" android:layout_width="wrap_content" android:layout_height="wrap_content">
+                    <TextView android:id="@+id/tvBtcPrice" android:text="$0,00"
+                        android:textColor="#9E9E9E" android:textSize="13sp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                    <TextView android:id="@+id/tvBtcChange" android:text="+0,00%"
+                        android:textColor="#00C076" android:textSize="13sp" android:layout_marginStart="6dp"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+                </LinearLayout>
             </LinearLayout>
             <LinearLayout android:orientation="vertical" android:gravity="end"
                 android:layout_width="wrap_content" android:layout_height="wrap_content">
-                <TextView android:id="@+id/tvBtcAmount" android:text="0 BTC"
+                <TextView android:id="@+id/tvBtcAmount" android:text="0,0000000"
                     android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold"
                     android:layout_width="wrap_content" android:layout_height="wrap_content"/>
                 <TextView android:id="@+id/tvBtcUsd" android:text="$0,00"
@@ -92,8 +99,6 @@
             android:padding="8dp"
             android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
-        <TextView android:id="@+id/tvBtcPrice" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp"/>
-        <TextView android:id="@+id/tvBtcChange" android:visibility="gone" android:layout_width="0dp" android:layout_height="0dp"/>
     </LinearLayout>
     </ScrollView>
     <include layout="@layout/layout_bottom_nav"/>
