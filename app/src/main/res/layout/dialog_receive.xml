@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical" android:padding="24dp"
+    android:padding="24dp" android:orientation="vertical"
+    android:background="@color/safepal_bg"
     android:layout_width="match_parent" android:layout_height="wrap_content">
-    <TextView android:text="Địa chỉ ví của bạn:" android:textStyle="bold"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    <TextView android:id="@+id/tvReceiveAddr" android:text="1..." android:textIsSelectable="true"
-        android:textSize="16sp" android:layout_marginTop="12dp"
+
+    <TextView android:text="Địa chỉ nhận BTC" android:textColor="@color/safepal_text"
+        android:textSize="16sp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+
+    <TextView android:id="@+id/tvReceiveAddr" android:layout_marginTop="16dp"
+        android:background="@color/safepal_card" android:padding="16dp"
+        android:textColor="@color/safepal_text" android:textIsSelectable="true"
         android:layout_width="match_parent" android:layout_height="wrap_content"/>
 </LinearLayout>
