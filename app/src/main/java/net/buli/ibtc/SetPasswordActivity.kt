@@ -12,19 +12,18 @@ class SetPasswordActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_set_password)
 
-        val p1 = findViewById<EditText>(R.id.etPass1)
-        val p2 = findViewById<EditText>(R.id.etPass2)
+        val prefs = getSharedPreferences("ibtc_prefs", MODE_PRIVATE)
+        val seed = prefs.getString("temp_seed", "")!!
 
         findViewById<Button>(R.id.btnSetPass).setOnClickListener {
-            val pass = p1.text.toString()
-            if (pass.length < 8) { Toast.makeText(this, "Mật khẩu ≥8 ký tự", 0).show(); return@setOnClickListener }
-            if (pass != p2.text.toString()) { Toast.makeText(this, "Không khớp", 0).show(); return@setOnClickListener }
-
-            val prefs = getSharedPreferences("ibtc_prefs", MODE_PRIVATE)
-            val seed = prefs.getString("temp_seed", "")
-            prefs.edit().putString("seed", seed).putString("password", pass)
+            val p1 = findViewById<EditText>(R.id.etPass1).text.toString()
+            val p2 = findViewById<EditText>(R.id.etPass2).text.toString()
+            if (p1.length < 6) { Toast.makeText(this,"Pass toi thieu 6 ky tu",0).show(); return@setOnClickListener }
+            if (p1 != p2) { Toast.makeText(this,"Khong khop",0).show(); return@setOnClickListener }
+            
+            prefs.edit().putString("seed", seed).putString("password", p1)
                 .putBoolean("has_wallet", true).remove("temp_seed").apply()
-
+            
             startActivity(Intent(this, MainActivity::class.java))
             finishAffinity()
         }
