@@ -1,39 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- SafePal Dark Theme -->
-    <color name="safepal_bg">#0B0E14</color>          <!-- Nền chính đen xanh -->
-    <color name="safepal_card">#1A1F2E</color>        <!-- Màu card -->
-    <color name="safepal_card_end">#252B3F</color>    <!-- Gradient cuối card -->
-    
-    <!-- Màu chủ đạo -->
-    <color name="safepal_purple">#6C5CE7</color>      <!-- Tím SafePal -->
-    <color name="safepal_purple_dark">#5B4BD1</color>
-    <color name="safepal_blue">#0984E3</color>        <!-- Xanh dương -->
-    <color name="safepal_blue_dark">#0770C2</color>
-    
-    <!-- Text -->
-    <color name="safepal_text">#FFFFFF</color>        <!-- Trắng chính -->
-    <color name="safepal_text_secondary">#E4E6EB</color>
-    <color name="safepal_gray">#8A8F98</color>        <!-- Xám chữ phụ -->
-    <color name="safepal_gray_dark">#5E636E</color>
-    
-    <!-- Trạng thái -->
-    <color name="safepal_green">#00D68F</color>       <!-- Xanh lá tăng -->
-    <color name="safepal_red">#FF3B5C</color>         <!-- Đỏ giảm -->
-    <color name="safepal_orange">#FF9500</color>      <!-- Cảnh báo -->
-    
-    <!-- Divider & line -->
-    <color name="safepal_divider">#2A3142</color>
-    
-    <!-- Màu cũ để tránh lỗi (giữ lại) -->
-    <color name="purple_200">#FFBB86FC</color>
-    <color name="purple_500">#FF6200EE</color>
-    <color name="purple_700">#FF3700B3</color>
-    <color name="teal_200">#FF03DAC5</color>
-    <color name="teal_700">#FF018786</color>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-
-    <!-- Tên app -->
-    <color name="app_name_color">@color/safepal_text</color>
+    <color name="safepal_bg">#0B0E14</color>
+    <color name="safepal_card">#1A1F2E</color>
+    <color name="safepal_purple">#7B5CFA</color>
+    <color name="safepal_blue">#3A86FF</color>
+    <color name="safepal_text">#FFFFFF</color>
+    <color name="safepal_gray">#8A8F98</color>
+    <color name="black">#000000</color>
+    <color name="white">#FFFFFF</color>
 </resources>
