@@ -15,7 +15,6 @@ class LockActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences("ibtc", MODE_PRIVATE)
         
-        // Nếu chưa có ví thì chuyển sang tạo ví
         if (!prefs.getBoolean("has_wallet", false)) {
             startActivity(Intent(this, CreateWalletActivity::class.java))
             finish()
@@ -37,9 +36,8 @@ class LockActivity : AppCompatActivity() {
             
             if (hash == savedHash) {
                 toast("Mở khóa thành công")
-                // FIX: không finish() để Back từ Settings quay về đây
                 startActivity(Intent(this, SettingsActivity::class.java))
-                etPwd.text.clear() // xóa pass khỏi ô nhập
+                etPwd.text.clear()
             } else {
                 toast("Sai mật khẩu")
                 etPwd.text.clear()
@@ -49,7 +47,6 @@ class LockActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Mỗi lần quay lại Lock thì xóa ô password
         findViewById<EditText>(R.id.etPassword)?.text?.clear()
     }
 
@@ -59,7 +56,5 @@ class LockActivity : AppCompatActivity() {
             .joinToString("") { "%02x".format(it) }
     }
 
-    private fun toast(m: String) {
-        Toast.makeText(this, m, Toast.LENGTH_SHORT).show()
-    }
+    private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_SHORT).show()
 }
