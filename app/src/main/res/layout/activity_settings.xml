@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@color/safepal_bg" android:orientation="vertical">
+    <RelativeLayout android:layout_width="match_parent" android:layout_height="56dp"
+        android:paddingHorizontal="16dp">
+        <ImageView android:id="@+id/btnBack" android:layout_width="24dp" android:layout_height="24dp"
+            android:layout_centerVertical="true" android:src="@android:drawable/ic_menu_revert"/>
+        <TextView android:layout_centerInParent="true" android:text="Cài đặt ví"
+            android:textColor="@color/safepal_text" android:textSize="18sp" android:textStyle="bold"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </RelativeLayout>
+    <LinearLayout android:id="@+id/itemChangePass" android:layout_marginTop="16dp"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:background="@color/safepal_card2" android:gravity="center_vertical"
+        android:orientation="horizontal" android:paddingHorizontal="16dp">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@android:drawable/ic_lock_lock" android:tint="@color/safepal_purple"/>
+        <TextView android:layout_marginStart="12dp" android:text="Đổi mật khẩu"
+            android:textColor="@color/safepal_text" android:textSize="16sp"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </LinearLayout>
+    <LinearLayout android:id="@+id/itemDelete" android:layout_marginTop="8dp"
+        android:layout_width="match_parent" android:layout_height="56dp"
+        android:background="@color/safepal_card2" android:gravity="center_vertical"
+        android:orientation="horizontal" android:paddingHorizontal="16dp">
+        <ImageView android:layout_width="24dp" android:layout_height="24dp"
+            android:src="@android:drawable/ic_delete" android:tint="#FF5252"/>
+        <TextView android:layout_marginStart="12dp" android:text="Xóa ví"
+            android:textColor="#FF5252" android:textSize="16sp"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    </LinearLayout>
+</LinearLayout>
