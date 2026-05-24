@@ -16,7 +16,9 @@ class ChangePasswordActivity : BaseActivity() {
         btnChange.setOnClickListener {
             if (!sec.checkPwd(etOld.text.toString())) { Toast.makeText(this,"MK cũ sai",Toast.LENGTH_SHORT).show(); return@setOnClickListener }
             if (etNew.text.toString() != etConfirm.text.toString()) { Toast.makeText(this,"Không khớp",Toast.LENGTH_SHORT).show(); return@setOnClickListener }
-            sec.savePwd(etNew.text.toString()); Toast.makeText(this,"Đổi xong",Toast.LENGTH_SHORT).show(); finish()
+            sec.savePwd(etNew.text.toString())
+            Toast.makeText(this,"Đổi xong",Toast.LENGTH_SHORT).show()
+            finish()
         }
     }
 }
