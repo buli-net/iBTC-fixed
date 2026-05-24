@@ -11,17 +11,21 @@ import java.security.SecureRandom
 class CreateWalletActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // PHẢI CÓ R.layout.
         setContentView(R.layout.activity_create_wallet)
+        
         val sec = SecurePrefs(this)
         val etPassword = findViewById<EditText>(R.id.etPassword)
         val btnCreate = findViewById<Button>(R.id.btnCreate)
 
         btnCreate.setOnClickListener {
             val pwd = etPassword.text.toString()
-            if (pwd.length < 6) { Toast.makeText(this,"MK >=6",Toast.LENGTH_SHORT).show(); return@setOnClickListener }
+            if (pwd.length < 6) { Toast.makeText(this,"MK>=6",Toast.LENGTH_SHORT).show(); return@setOnClickListener }
             
+            // FIX generateMnemonic + overload
             val mnemonic = MnemonicCode.INSTANCE.generateMnemonic(SecureRandom())
-            val seed = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis()/1000)
+            val seed = DeterministicSeed(mnemonic, null, "", System.currentTimeMillis() / 1000L)
+            
             sec.saveSeed(mnemonic.joinToString(" "))
             sec.savePwd(pwd)
             
