@@ -19,7 +19,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         val prefs = SecureStorage.prefs(this)
-        val address = prefs.getString("address", "")
+        val address = prefs.getString("address", "") ?: ""
 
         findViewById<TextView>(R.id.tvAddress).text = address
 
@@ -38,7 +38,7 @@ class MainActivity : AppCompatActivity() {
         loadBalance(address)
     }
 
-    private fun loadBalance(address: String?) {
+    private fun loadBalance(address: String) {
         scope.launch {
             val balance = withContext(Dispatchers.IO) {
                 try {
