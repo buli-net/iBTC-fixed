@@ -3,29 +3,19 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
-import org.bitcoinj.crypto.MnemonicCode
-import org.bitcoinj.params.MainNetParams
-import org.bitcoinj.wallet.DeterministicSeed
-import java.security.SecureRandom
-
-class CreateWalletActivity : BaseActivity() {
+class ChangePasswordActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_create_wallet)
+        setContentView(R.layout.activity_change_password)
         val sec = SecurePrefs(this)
-        val etPwd = findViewById<EditText>(R.id.etPassword)
-        val btn = findViewById<Button>(R.id.btnCreate)
+        val etOld = findViewById<EditText>(R.id.etOldPassword)
+        val etNew = findViewById<EditText>(R.id.etNewPassword)
+        val etConfirm = findViewById<EditText>(R.id.etConfirmPassword)
+        val btn = findViewById<Button>(R.id.btnChange)
         btn.setOnClickListener {
-            if (etPwd.text.length < 6) { toast("MK>=6"); return@setOnClickListener }
-            val m = MnemonicCode.INSTANCE.generateMnemonic(SecureRandom())
-            val seed = DeterministicSeed(m, null, "", System.currentTimeMillis()/1000L)
-            sec.saveSeed(m.joinToString(" "))
-            sec.savePwd(etPwd.text.toString())
-            val w = org.bitcoinj.wallet.Wallet.fromSeed(MainNetParams.get(), seed)
-            getSharedPreferences("ibtc_prefs",0).edit()
-                .putString("btc_address", w.currentReceiveAddress().toString())
-                .putBoolean("has_wallet", true).apply()
-            toast("Tạo ví xong"); finish()
+            if (!sec.checkPwd(etOld.text.toString())) { toast("MK cũ sai"); return@setOnClickListener }
+            if (etNew.text.toString() != etConfirm.text.toString()) { toast("Không khớp"); return@setOnClickListener }
+            sec.savePwd(etNew.text.toString()); toast("Đổi xong"); finish()
         }
     }
     private fun toast(s:String)=Toast.makeText(this,s,Toast.LENGTH_SHORT).show()
