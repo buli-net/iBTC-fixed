@@ -27,7 +27,8 @@ class SettingsActivity : BaseActivity() {
             } else Toast.makeText(this,"Sai MK cũ",Toast.LENGTH_SHORT).show()
         }
         btnShowSeed.setOnClickListener {
-            if (sec.checkPwd(etOldPwd.text.toString())) Toast.makeText(this, sec.getSeed(), Toast.LENGTH_LONG).show()
+            if (sec.checkPwd(etOldPwd.text.toString()))
+                Toast.makeText(this, sec.getSeed(), Toast.LENGTH_LONG).show()
         }
         btnBackup.setOnClickListener {
             if (sec.checkPwd(etOldPwd.text.toString())) {
