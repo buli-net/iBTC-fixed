@@ -18,7 +18,6 @@ class SetPasswordActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSetPass).setOnClickListener {
             val p1 = findViewById<EditText>(R.id.etPass1).text.toString()
             val p2 = findViewById<EditText>(R.id.etPass2).text.toString()
-            
             if (p1.length < 6) {
                 Toast.makeText(this, "Mật khẩu tối thiểu 6 ký tự", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
@@ -27,14 +26,8 @@ class SetPasswordActivity : AppCompatActivity() {
                 Toast.makeText(this, "Mật khẩu không khớp", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            
-            prefs.edit()
-                .putString("seed", seed)
-                .putString("password", p1)
-                .putBoolean("has_wallet", true)
-                .remove("temp_seed")
-                .apply()
-            
+            prefs.edit().putString("seed", seed).putString("password", p1)
+                .putBoolean("has_wallet", true).remove("temp_seed").apply()
             startActivity(Intent(this, MainActivity::class.java))
             finishAffinity()
         }
