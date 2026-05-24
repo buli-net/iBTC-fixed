@@ -26,34 +26,14 @@ class WelcomeActivity : AppCompatActivity() {
             return
         }
 
-        findViewById<Button>(R.id.btnCreate).setOnClickListener { showCreateDialog() }
-        findViewById<Button>(R.id.btnImport).setOnClickListener { showImportDialog() }
-    }
+        // BƯỚC FIX: bấm Tạo ví → sang màn Backup Seed luôn
+        findViewById<Button>(R.id.btnCreate).setOnClickListener {
+            startActivity(Intent(this, BackupSeedActivity::class.java))
+        }
 
-    private fun showCreateDialog() {
-        val view = layoutInflater.inflate(R.layout.dialog_password, null)
-        val p1 = view.findViewById<EditText>(R.id.etPass1)
-        val p2 = view.findViewById<EditText>(R.id.etPass2)
-
-        AlertDialog.Builder(this)
-            .setTitle("Tạo ví mới")
-            .setView(view)
-            .setPositiveButton("Tạo") { _, _ ->
-                val pass = p1.text.toString()
-                if (pass.length < 8) {
-                    Toast.makeText(this, "Mật khẩu phải ≥8 ký tự", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                if (pass != p2.text.toString()) {
-                    Toast.makeText(this, "Mật khẩu không khớp", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
-                }
-                prefs.edit().putString("password", pass).putBoolean("has_wallet", true).apply()
-                startActivity(Intent(this, MainActivity::class.java))
-                finish()
-            }
-            .setNegativeButton("Hủy", null)
-            .show()
+        findViewById<Button>(R.id.btnImport).setOnClickListener { 
+            showImportDialog() 
+        }
     }
 
     private fun showImportDialog() {
@@ -76,10 +56,15 @@ class WelcomeActivity : AppCompatActivity() {
                     Toast.makeText(this, "Mật khẩu ≥8 ký tự và phải khớp", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                prefs.edit().putString("seed", seed).putString("password", pass).putBoolean("has_wallet", true).apply()
+                prefs.edit()
+                    .putString("seed", seed)
+                    .putString("password", pass)
+                    .putBoolean("has_wallet", true)
+                    .apply()
                 startActivity(Intent(this, MainActivity::class.java))
                 finish()
             }
+            .setNegativeButton("Hủy", null)
             .show()
     }
 }
