@@ -15,7 +15,8 @@ class LockActivity : BaseActivity() {
         btnUnlock.setOnClickListener {
             if (sec.checkPwd(etPassword.text.toString())) {
                 getSharedPreferences("ibtc_prefs",0).edit().putBoolean("locked",false).apply()
-                startActivity(Intent(this, MainActivity::class.java)); finish()
+                startActivity(Intent(this, MainActivity::class.java))
+                finish()
             } else Toast.makeText(this,"Sai MK",Toast.LENGTH_SHORT).show()
         }
     }
