@@ -41,7 +41,9 @@ class MainActivity : BaseNavActivity() {
                     val json = URL("https://mempool.space/api/address/$address").readText()
                     val obj = JSONObject(json).getJSONObject("chain_stats")
                     btcBalance = (obj.getLong("funded_txo_sum")-obj.getLong("spent_txo_sum"))/100_000_000.0
+                    prefs.edit().putString("last_balance", btcBalance.toString()).apply()
                 } else btcBalance = prefs.getString("last_balance","0.0")!!.toDouble()
+                
                 val priceJson = URL("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true").readText()
                 val p = JSONObject(priceJson).getJSONObject("bitcoin")
                 val price = p.getDouble("usd"); val change = p.getDouble("usd_24h_change")
@@ -49,15 +51,36 @@ class MainActivity : BaseNavActivity() {
             }catch(_:Exception){}
         }
     }
+    
     private fun updateUI(price:Double,change24:Double){
-        val tvUsd=findViewById<TextView>(R.id.tvUsdBalance); val tvBtc=findViewById<TextView>(R.id.tvBtcBalance)
-        val tvToday=findViewById<TextView>(R.id.tvTodayChange); val tvAmt=findViewById<TextView>(R.id.tvBtcAmount)
-        val tvUsd2=findViewById<TextView>(R.id.tvBtcUsd); val vn=Locale("vi","VN")
+        val tvUsd=findViewById<TextView>(R.id.tvUsdBalance)
+        val tvBtc=findViewById<TextView>(R.id.tvBtcBalance)
+        val tvToday=findViewById<TextView>(R.id.tvTodayChange)
+        val tvAmt=findViewById<TextView>(R.id.tvBtcAmount)
+        val tvUsd2=findViewById<TextView>(R.id.tvBtcUsd)
+        val tvPrice=findViewById<TextView>(R.id.tvBtcPrice)
+        val tvChange=findViewById<TextView>(R.id.tvBtcChange)
+        val vn=Locale("vi","VN")
         val usdVal=btcBalance*price
-        if(hideBalance){ tvUsd.text="****"; tvBtc.text="**** BTC"; tvAmt.text="****"; tvUsd2.text="****" }
-        else { tvUsd.text="$${String.format(vn,"%,.2f",usdVal)}"; tvBtc.text="${String.format(Locale.US,"%.7f",btcBalance)} BTC"; tvAmt.text="${String.format(Locale.US,"%.7f",btcBalance)}"; tvUsd2.text="$${String.format(vn,"%,.2f",usdVal)}" }
-        val arrow=if(change24>=0)"▲" else "▼"; val green=0xFF00C076.toInt(); val red=0xFFFF4444.toInt()
-        tvToday.text="Hôm nay +$${String.format(vn,"%.2f",kotlin.math.abs(usdVal*change24/100))} $arrow${String.format(vn,"%.2f",kotlin.math.abs(change24))}%"
+        
+        if(hideBalance){ 
+            tvUsd.text="****"; tvBtc.text="**** BTC"; tvAmt.text="****"; tvUsd2.text="****" 
+        } else { 
+            tvUsd.text="$${String.format(vn,"%,.2f",usdVal)}"
+            tvBtc.text="${String.format(Locale.US,"%.7f",btcBalance)} BTC"
+            tvAmt.text=String.format(Locale.US,"%.7f",btcBalance)
+            tvUsd2.text="$${String.format(vn,"%,.2f",usdVal)}" 
+        }
+        
+        // GIÁ VÀ % REAL
+        tvPrice.text = "$${String.format(vn,"%,.2f",price)}"
+        val sign = if(change24>=0) "+" else ""
+        tvChange.text = "$sign${String.format(vn,"%.2f",change24)}%"
+        val green=0xFF00C076.toInt(); val red=0xFFFF4444.toInt()
+        tvChange.setTextColor(if(change24>=0)green else red)
+        
+        val arrow=if(change24>=0)"▲" else "▼"
+        tvToday.text="Hôm nay $sign$${String.format(vn,"%.2f",kotlin.math.abs(usdVal*change24/100))} $arrow${String.format(vn,"%.2f",kotlin.math.abs(change24))}%"
         tvToday.setTextColor(if(change24>=0)green else red)
     }
 }
