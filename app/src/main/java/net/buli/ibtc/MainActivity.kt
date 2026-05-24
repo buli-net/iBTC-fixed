@@ -23,6 +23,10 @@ class MainActivity : BaseNavActivity() {
         val address = wallet.currentReceiveAddress().toString()
 
         findViewById<TextView>(R.id.tvAddress).text = address
+        findViewById<TextView>(R.id.tvUsd).text = "$0.00"
+        findViewById<TextView>(R.id.tvBalance).text = "≈ 0 BTC"
+        findViewById<TextView>(R.id.tvBtcAmount)?.text = "0 BTC"
+
         findViewById<TextView>(R.id.tvAddress).setOnClickListener {
             getSystemService(android.content.ClipboardManager::class.java)
                 .setPrimaryClip(android.content.ClipData.newPlainText("addr", address))
@@ -36,18 +40,7 @@ class MainActivity : BaseNavActivity() {
             startActivity(Intent(this, ReceiveActivity::class.java))
         }
 
-        setupNav(R.id.navWallet) // <-- bật nav
+        setupNav(R.id.navWallet)
     }
-
-    override fun onPause() {
-        super.onPause()
-        prefs.edit().putBoolean("locked", true).apply()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        if (prefs.getBoolean("locked", false)) {
-            startActivity(Intent(this, LockActivity::class.java))
-        }
-    }
+    // KHÔNG còn onPause/onResume ở đây nữa – BaseNavActivity lo hết
 }
