@@ -16,11 +16,13 @@ class VerifySeedActivity : AppCompatActivity() {
         val original = prefs.getString("temp_seed", "")!!
 
         findViewById<Button>(R.id.btnVerify).setOnClickListener {
-            val input = findViewById<EditText>(R.id.etVerify).text.toString().trim()
+            val input = findViewById<EditText>(R.id.etVerifySeed).text.toString()
+                .trim().replace("\n"," ").replace("\\s+".toRegex()," ")
             if (input == original) {
                 startActivity(Intent(this, SetPasswordActivity::class.java))
+                finish()
             } else {
-                Toast.makeText(this, "Sai thứ tự, nhập lại", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Sai thu tu, thu lai", Toast.LENGTH_SHORT).show()
             }
         }
     }
