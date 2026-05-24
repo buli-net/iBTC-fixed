@@ -18,7 +18,7 @@ class SettingsActivity : BaseActivity() {
         btnChangePwd.setOnClickListener {
             if (sec.checkPwd(etOldPwd.text.toString())) {
                 sec.savePwd(etNewPwd.text.toString())
-                Toast.makeText(this,"OK",Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "OK", Toast.LENGTH_SHORT).show()
             }
         }
     }

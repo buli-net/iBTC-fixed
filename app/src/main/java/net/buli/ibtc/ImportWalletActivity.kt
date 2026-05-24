@@ -17,7 +17,7 @@ class ImportWalletActivity : BaseActivity() {
         val btnImport = findViewById<Button>(R.id.btnImport)
         btnImport.setOnClickListener {
             try {
-                val words = etSeed.text.toString().trim().split("\\s+".toRegex())
+                val words = etSeed.text.toString().trim().split("\s+".toRegex())
                 MnemonicCode.INSTANCE.check(words)
                 val seed = DeterministicSeed(words, null, "", System.currentTimeMillis()/1000L)
                 sec.saveSeed(words.joinToString(" "))
