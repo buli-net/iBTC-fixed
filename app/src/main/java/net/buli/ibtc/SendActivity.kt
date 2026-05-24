@@ -1,22 +1,28 @@
 package net.buli.ibtc
 import android.os.Bundle
-import android.view.View
 import android.widget.*
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
+import kotlinx.coroutines.*
+import okhttp3.*
+import org.bitcoinj.core.*
+import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.wallet.DeterministicSeed
+import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URL
-import kotlin.concurrent.thread
 
-class SendActivity:BaseNavActivity(){
-    private var slow=5;private var normal=8;private var fast=12;private var rate=8
-    private val qr=registerForActivityResult(ScanContract()){r->if(r.contents!=null)findViewById<EditText>(R.id.etAddress).setText(r.contents)}
-    override fun onCreate(b:Bundle?){super.onCreate(b);setContentView(R.layout.activity_send)
-        findViewById<ImageView>(R.id.btnBack).setOnClickListener{finish()}
-        findViewById<ImageView>(R.id.btnScan).setOnClickListener{qr.launch(ScanOptions().setPrompt("Quét địa chỉ BTC"))}
-        val rg=findViewById<RadioGroup>(R.id.rgFee);val et=findViewById<EditText>(R.id.etCustomFee);val tv=findViewById<TextView>(R.id.tvFeeInfo)
-        fun up(){val s=rate*140;tv.text="≈ $s sat (${s/1e8} BTC) – $rate sat/vB"}
-        rg.setOnCheckedChangeListener{_,id->et.visibility=if(id==R.id.rbCustom)View.VISIBLE else View.GONE;rate=when(id){R.id.rbSlow->slow;R.id.rbFast->fast;R.id.rbCustom->et.text.toString().toIntOrNull()?:normal;else->normal};up()}
-        thread{try{val o=JSONObject(URL("https://mempool.space/api/v1/fees/recommended").readText());fast=o.getInt("fastestFee");normal=o.getInt("halfHourFee");slow=o.getInt("hourFee");runOnUiThread{findViewById<RadioButton>(R.id.rbSlow).text="Chậm (~$slow)";findViewById<RadioButton>(R.id.rbNormal).text="Thường (~$normal)";findViewById<RadioButton>(R.id.rbFast).text="Nhanh (~$fast)";rate=normal;up()}}catch(_:Exception){}}
-    }
+class SendActivity:BaseActivity(){private val sec by lazy{SecurePrefs(this)};private val client=OkHttpClient()
+override fun onCreate(b:Bundle?){super.onCreate(b);setContentView(R.layout.activity_send)
+    val etA=findViewById<EditText>(R.id.etAddress);val etB=findViewById<EditText>(R.id.etAmount)
+    findViewById<Button>(R.id.btnSend).setOnClickListener{
+        val addr=etA.text.toString();val amt=etB.text.toString().toDoubleOrNull()?:return@setOnClickListener
+        CoroutineScope(Dispatchers.IO).launch{try{
+            val params=MainNetParams.get();val seed=DeterministicSeed(sec.getSeed().split(" "),null,"",0)
+            val wallet=org.bitcoinj.wallet.Wallet.fromSeed(params,seed)
+            val from=getSharedPreferences("ibtc_prefs",0).getString("btc_address","")!!
+            val utxos=JSONArray(client.newCall(Request.Builder().url("https://mempool.space/api/address/$from/utxo").build()).execute().body!!.string())
+            for(i in 0 until utxos.length()){val u=utxos.getJSONObject(i);wallet.addUTXO(TransactionOutPoint(params,u.getLong("vout"),Sha256Hash.wrap(u.getString("txid"))),Coin.valueOf(u.getLong("value")))}
+            val tx=wallet.createSend(Address.fromString(params,addr),Coin.parseCoin(amt.toString()));wallet.commitTx(tx)
+            val hex=tx.tx.bitcoinSerialize().joinToString(""){"%02x".format(it)}
+            client.newCall(Request.Builder().url("https://mempool.space/api/tx").post(RequestBody.create(MediaType.parse("text/plain"),hex)).build()).execute()
+            withContext(Dispatchers.Main){Toast.makeText(this@SendActivity,"Đã gửi",0).show();finish()}
+        }catch(e:Exception){withContext(Dispatchers.Main){Toast.makeText(this@SendActivity,"Lỗi: ${e.message}",1).show()}}}}}
 }
