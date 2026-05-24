@@ -66,13 +66,14 @@ class MainActivity : BaseNavActivity() {
         if(hideBalance){ 
             tvUsd.text="****"; tvBtc.text="**** BTC"; tvAmt.text="****"; tvUsd2.text="****" 
         } else { 
-            tvUsd.text="$${String.format(vn,"%,.2f",usdVal)}"
-            tvBtc.text="${String.format(Locale.US,"%.7f",btcBalance)} BTC"
-            tvAmt.text=String.format(Locale.US,"%.7f",btcBalance)
-            tvUsd2.text="$${String.format(vn,"%,.2f",usdVal)}" 
+            // USD CHUẨN MỸ 2 SỐ
+            tvUsd.text = "$${String.format(Locale.US, "%,.2f", usdVal)}"
+            tvUsd2.text = "$${String.format(Locale.US, "%,.2f", usdVal)}"
+            // BTC CHUẨN 8 SỐ
+            tvBtc.text = "${String.format(Locale.US,"%.8f",btcBalance)} BTC"
+            tvAmt.text = String.format(Locale.US,"%.8f",btcBalance)
         }
         
-        // GIÁ VÀ % REAL
         tvPrice.text = "$${String.format(vn,"%,.2f",price)}"
         val sign = if(change24>=0) "+" else ""
         tvChange.text = "$sign${String.format(vn,"%.2f",change24)}%"
