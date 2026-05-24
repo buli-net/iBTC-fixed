@@ -11,27 +11,28 @@ abstract class BaseNavActivity : AppCompatActivity() {
         val purple = ContextCompat.getColor(this, R.color.safepal_purple)
         val gray = ContextCompat.getColor(this, R.color.safepal_gray)
 
-        val items = listOf(
-            R.id.navWallet to Pair(R.id.icWallet to R.id.tvWallet, MainActivity::class.java),
-            R.id.navMarket to Pair(R.id.icMarket to R.id.tvMarket, MarketActivity::class.java),
-            R.id.navDapp to Pair(R.id.icDapp to R.id.tvDapp, DAppActivity::class.java),
-            R.id.navSwap to Pair(R.id.icSwap to R.id.tvSwap, SwapActivity::class.java),
-            R.id.navSettings to Pair(R.id.icSettings to R.id.tvSettings, SettingsActivity::class.java)
+        val tabs = listOf(
+            Triple(R.id.navWallet, R.id.icWallet to R.id.tvWallet, MainActivity::class.java),
+            Triple(R.id.navMarket, R.id.icMarket to R.id.tvMarket, MarketActivity::class.java),
+            Triple(R.id.navDapp, R.id.icDapp to R.id.tvDapp, DAppActivity::class.java),
+            Triple(R.id.navSwap, R.id.icSwap to R.id.tvSwap, SwapActivity::class.java),
+            Triple(R.id.navSettings, R.id.icSettings to R.id.tvSettings, SettingsActivity::class.java)
         )
 
-        items.forEach { (navId, pair) ->
-            val (icons, cls) = pair
-            val (icId, tvId) = icons
-            findViewById<android.view.View>(navId).setOnClickListener {
+        tabs.forEach { (navId, ids, cls) ->
+            val (icId, tvId) = ids
+            findViewById<android.view.View>(navId)?.setOnClickListener {
                 if (navId != selectedId) {
+                    // tắt khóa tạm để không bị LockActivity nhảy lên khi chuyển tab
+                    getSharedPreferences("ibtc_prefs",0).edit().putBoolean("locked",false).apply()
                     startActivity(Intent(this, cls))
                     overridePendingTransition(0,0)
                     finish()
                 }
             }
             val color = if (navId == selectedId) purple else gray
-            findViewById<ImageView>(icId).setColorFilter(color)
-            findViewById<TextView>(tvId).setTextColor(color)
+            findViewById<ImageView>(icId)?.setColorFilter(color)
+            findViewById<TextView>(tvId)?.setTextColor(color)
         }
     }
 }
