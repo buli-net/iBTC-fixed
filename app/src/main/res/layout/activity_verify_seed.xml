@@ -1,17 +1,37 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="@color/safepal_bg" android:orientation="vertical" android:padding="24dp">
-    <TextView android:text="Xác minh cụm từ" android:textSize="22sp"
-        android:textStyle="bold" android:textColor="@color/safepal_text"
-        android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    <EditText android:id="@+id/etVerifySeed" android:layout_marginTop="24dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/safepal_bg"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Xác minh cụm từ"
+        android:textColor="@color/safepal_text"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <EditText
+        android:id="@+id/etVerifySeed"
+        android:layout_width="match_parent"
+        android:layout_height="120dp"
+        android:layout_marginTop="24dp"
+        android:background="@color/safepal_card"
+        android:gravity="top"
         android:hint="Nhập lại 12 từ theo đúng thứ tự"
-        android:background="@color/safepal_card" android:padding="16dp"
-        android:textColor="@color/safepal_text" android:minLines="4"
-        android:gravity="top" android:textColorHint="@color/safepal_gray"
-        android:layout_width="match_parent" android:layout_height="120dp"/>
-    <Button android:id="@+id/btnVerify" android:layout_marginTop="24dp"
-        android:text="Xác minh" android:backgroundTint="@color/safepal_purple"
-        android:layout_width="match_parent" android:layout_height="56dp"/>
+        android:minLines="4"
+        android:padding="16dp"
+        android:textColor="@color/safepal_text"
+        android:textColorHint="@color/safepal_gray" />
+
+    <Button
+        android:id="@+id/btnVerify"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:layout_marginTop="24dp"
+        android:backgroundTint="@color/safepal_purple"
+        android:text="Xác minh" />
 </LinearLayout>
