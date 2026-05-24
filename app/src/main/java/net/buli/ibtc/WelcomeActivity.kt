@@ -15,9 +15,7 @@ class WelcomeActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences("ibtc_prefs", MODE_PRIVATE)
         if (prefs.getBoolean("has_wallet", false)) {
-            startActivity(Intent(this, MainActivity::class.java))
-            finish()
-            return
+            startActivity(Intent(this, MainActivity::class.java)); finish(); return
         }
 
         findViewById<Button>(R.id.btnCreate).setOnClickListener {
@@ -25,29 +23,27 @@ class WelcomeActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnImport).setOnClickListener {
-            val view = layoutInflater.inflate(R.layout.dialog_import, null)
-            val etSeed = view.findViewById<EditText>(R.id.etSeed)
-            val p1 = view.findViewById<EditText>(R.id.etPass1)
-            val p2 = view.findViewById<EditText>(R.id.etPass2)
-
-            AlertDialog.Builder(this)
-                .setTitle("Khoi phuc vi")
-                .setView(view)
-                .setPositiveButton("Khoi phuc") { _, _ ->
-                    val seed = etSeed.text.toString().trim()
-                    val pass = p1.text.toString()
-                    if (seed.split(" ").size != 12) {
-                        Toast.makeText(this, "Can dung 12 tu", Toast.LENGTH_SHORT).show(); return@setPositiveButton
-                    }
-                    if (pass.length < 8 || pass != p2.text.toString()) {
-                        Toast.makeText(this, "Pass >=8 va phai khop", Toast.LENGTH_SHORT).show(); return@setPositiveButton
-                    }
-                    prefs.edit().putString("seed", seed).putString("password", pass)
-                        .putBoolean("has_wallet", true).apply()
-                    startActivity(Intent(this, MainActivity::class.java)); finish()
-                }
-                .setNegativeButton("Huy", null)
-                .show()
+            val v = layoutInflater.inflate(R.layout.dialog_import, null)
+            val etSeed = v.findViewById<EditText>(R.id.etSeed)
+            val p1 = v.findViewById<EditText>(R.id.etPass1)
+            val p2 = v.findViewById<EditText>(R.id.etPass2)
+            
+            val dlg = AlertDialog.Builder(this).setView(v)
+                .setPositiveButton("Khoi phuc", null)
+                .setNegativeButton("Huy", null).create()
+            dlg.show()
+            
+            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val seed = etSeed.text.toString().trim().replace("\n"," ")
+                val pass = p1.text.toString()
+                if (seed.split(" ").size < 12) { Toast.makeText(this,"Nhap du 12 tu",0).show(); return@setOnClickListener }
+                if (pass.length < 6 || pass != p2.text.toString()) { Toast.makeText(this,"Pass >=6 va khop",0).show(); return@setOnClickListener }
+                
+                prefs.edit().putString("seed", seed).putString("password", pass)
+                    .putBoolean("has_wallet", true).apply()
+                dlg.dismiss()
+                startActivity(Intent(this, MainActivity::class.java)); finish()
+            }
         }
     }
 }
