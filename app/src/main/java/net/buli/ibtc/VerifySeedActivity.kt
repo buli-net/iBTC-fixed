@@ -17,10 +17,7 @@ class VerifySeedActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnVerify).setOnClickListener {
             val input = findViewById<EditText>(R.id.etVerifySeed).text.toString()
-                .trim()
-                .replace("\n", " ")
-                .replace("\\s+".toRegex(), " ")
-            
+                .trim().replace("\n", " ").replace("\\s+".toRegex(), " ")
             if (input == original) {
                 startActivity(Intent(this, SetPasswordActivity::class.java))
                 finish()
