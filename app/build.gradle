@@ -1,14 +1,39 @@
-<?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:padding="24dp" android:orientation="vertical"
-    android:background="@color/safepal_bg"
-    android:layout_width="match_parent" android:layout_height="wrap_content">
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
 
-    <TextView android:text="Địa chỉ nhận BTC" android:textColor="@color/safepal_text"
-        android:textSize="16sp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+android {
+    namespace 'net.buli.ibtc'
+    compileSdk 34
 
-    <TextView android:id="@+id/tvReceiveAddr" android:layout_marginTop="16dp"
-        android:background="@color/safepal_card" android:padding="16dp"
-        android:textColor="@color/safepal_text" android:textIsSelectable="true"
-        android:layout_width="match_parent" android:layout_height="wrap_content"/>
-</LinearLayout>
+    defaultConfig {
+        applicationId "net.buli.ibtc"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.11.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'org.bitcoinj:bitcoinj-core:0.16.2'
+}
