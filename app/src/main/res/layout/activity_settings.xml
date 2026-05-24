@@ -1,26 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
-    android:background="#000000" android:orientation="vertical">
-    <RelativeLayout android:layout_width="match_parent" android:layout_height="56dp" android:background="#0F141E" android:paddingHorizontal="16dp">
-        <ImageView android:id="@+id/btnBack" android:layout_width="24dp" android:layout_height="24dp" android:src="@android:drawable/ic_menu_revert" android:tint="#B0B0B0" android:layout_centerVertical="true"/>
-        <TextView android:text="Cài đặt ví" android:textColor="#FFFFFF" android:textSize="18sp" android:textStyle="bold" android:layout_centerInParent="true" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-    </RelativeLayout>
-    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-        <LinearLayout android:orientation="vertical" android:layout_width="match_parent" android:layout_height="wrap_content">
-            <LinearLayout android:id="@+id/itemBackupSeed" android:background="#0F141E" android:padding="16dp" android:layout_marginTop="16dp" android:layout_width="match_parent" android:layout_height="56dp" android:gravity="center_vertical">
-                <ImageView android:src="@android:drawable/ic_menu_save" android:tint="#7B3FF2" android:layout_width="24dp" android:layout_height="24dp"/>
-                <TextView android:text="Sao lưu seed phrase" android:textColor="#B0B0B0" android:layout_marginStart="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            </LinearLayout>
-            <LinearLayout android:id="@+id/itemChangePass" android:background="#0F141E" android:padding="16dp" android:layout_marginTop="8dp" android:layout_width="match_parent" android:layout_height="56dp" android:gravity="center_vertical">
-                <ImageView android:src="@android:drawable/ic_lock_lock" android:tint="#7B3FF2" android:layout_width="24dp" android:layout_height="24dp"/>
-                <TextView android:text="Đổi mật khẩu" android:textColor="#B0B0B0" android:layout_marginStart="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            </LinearLayout>
-            <LinearLayout android:id="@+id/itemDelete" android:background="#0F141E" android:padding="16dp" android:layout_marginTop="8dp" android:layout_width="match_parent" android:layout_height="56dp" android:gravity="center_vertical">
-                <ImageView android:src="@android:drawable/ic_delete" android:tint="#FF4444" android:layout_width="24dp" android:layout_height="24dp"/>
-                <TextView android:text="Xóa ví" android:textColor="#FF4444" android:layout_marginStart="16dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            </LinearLayout>
-        </LinearLayout>
-    </ScrollView>
-    <include layout="@layout/layout_bottom_nav"/>
-</LinearLayout>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <EditText
+            android:id="@+id/etOldPwd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mật khẩu cũ"
+            android:inputType="textPassword"/>
+
+        <EditText
+            android:id="@+id/etNewPwd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mật khẩu mới"
+            android:inputType="textPassword"
+            android:layout_marginTop="12dp"/>
+
+        <Button
+            android:id="@+id/btnChangePwd"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Đổi mật khẩu"
+            android:layout_marginTop="12dp"/>
+
+        <Button
+            android:id="@+id/btnShowSeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hiển thị Seed"
+            android:layout_marginTop="24dp"/>
+
+        <Button
+            android:id="@+id/btnBackup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Sao lưu ví"
+            android:layout_marginTop="12dp"/>
+
+        <Button
+            android:id="@+id/btnAbout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Giới thiệu"
+            android:layout_marginTop="12dp"/>
+    </LinearLayout>
+</ScrollView>

@@ -6,32 +6,25 @@
     android:padding="24dp">
 
     <EditText
-        android:id="@+id/etCurrent"
+        android:id="@+id/etSeed"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Mật khẩu hiện tại"
-        android:inputType="textPassword" />
+        android:layout_height="120dp"
+        android:hint="Nhập 12 từ seed"
+        android:gravity="top"
+        android:inputType="textMultiLine"/>
 
     <EditText
-        android:id="@+id/etNew"
+        android:id="@+id/etPassword"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="Mật khẩu mới"
         android:inputType="textPassword"
         android:layout_marginTop="12dp"/>
 
-    <EditText
-        android:id="@+id/etConfirm"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Xác nhận mật khẩu mới"
-        android:inputType="textPassword"
-        android:layout_marginTop="12dp"/>
-
     <Button
-        android:id="@+id/btnSave"
+        android:id="@+id/btnImport"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Lưu"
+        android:text="Import ví"
         android:layout_marginTop="24dp"/>
 </LinearLayout>
