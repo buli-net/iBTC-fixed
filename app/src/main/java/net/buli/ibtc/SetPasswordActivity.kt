@@ -18,11 +18,22 @@ class SetPasswordActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnSetPass).setOnClickListener {
             val p1 = findViewById<EditText>(R.id.etPass1).text.toString()
             val p2 = findViewById<EditText>(R.id.etPass2).text.toString()
-            if (p1.length < 6) { Toast.makeText(this,"Pass toi thieu 6 ky tu",0).show(); return@setOnClickListener }
-            if (p1 != p2) { Toast.makeText(this,"Khong khop",0).show(); return@setOnClickListener }
             
-            prefs.edit().putString("seed", seed).putString("password", p1)
-                .putBoolean("has_wallet", true).remove("temp_seed").apply()
+            if (p1.length < 6) {
+                Toast.makeText(this, "Mật khẩu tối thiểu 6 ký tự", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (p1 != p2) {
+                Toast.makeText(this, "Mật khẩu không khớp", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            
+            prefs.edit()
+                .putString("seed", seed)
+                .putString("password", p1)
+                .putBoolean("has_wallet", true)
+                .remove("temp_seed")
+                .apply()
             
             startActivity(Intent(this, MainActivity::class.java))
             finishAffinity()
