@@ -12,19 +12,19 @@ class SettingsActivity : BaseNavActivity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         setContentView(R.layout.activity_settings)
-
-        // Bật thanh bottom nav và sáng nút Cài đặt
         setupNav(R.id.navSettings)
 
-        // Nút back
-        findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
+        // Nút back trên header -> về Ví
+        findViewById<ImageView>(R.id.btnBack).setOnClickListener {
+            startActivity(Intent(this, MainActivity::class.java))
+            overridePendingTransition(0, 0)
+            finish()
+        }
 
-        // Đổi mật khẩu
         findViewById<LinearLayout>(R.id.itemChangePass).setOnClickListener {
             startActivity(Intent(this, ChangePasswordActivity::class.java))
         }
 
-        // Xóa ví
         findViewById<LinearLayout>(R.id.itemDelete).setOnClickListener {
             val v = layoutInflater.inflate(R.layout.dialog_delete, null)
             val et = v.findViewById<EditText>(R.id.etPassDel)
