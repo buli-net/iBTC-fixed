@@ -1,24 +1,45 @@
 package net.buli.ibtc
-import android.os.Bundle
-import android.widget.*
-import androidx.appcompat.app.AppCompatActivity
 
-class ChangePasswordActivity : AppCompatActivity() {
-    override fun onCreate(b: Bundle?) {
-        super.onCreate(b)
+import android.os.Bundle
+import android.widget.Button
+import android.widget.EditText
+import android.widget.Toast
+
+class ChangePasswordActivity : BaseActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_change_password)
-        val prefs = getSharedPreferences("ibtc_prefs", 0)
-        findViewById<ImageView>(R.id.btnBack).setOnClickListener { finish() }
-        findViewById<Button>(R.id.btnSave).setOnClickListener {
-            val old = findViewById<EditText>(R.id.etOld).text.toString()
-            val n1 = findViewById<EditText>(R.id.etNew1).text.toString()
-            val n2 = findViewById<EditText>(R.id.etNew2).text.toString()
-            if (old != prefs.getString("password", "")) {
-                Toast.makeText(this, "Sai mật khẩu cũ", 0).show(); return@setOnClickListener }
-            if (n1.length < 6 || n1 != n2) {
-                Toast.makeText(this, "Mật khẩu mới không hợp lệ", 0).show(); return@setOnClickListener }
-            prefs.edit().putString("password", n1).apply()
-            Toast.makeText(this, "Đã đổi", 0).show(); finish()
+
+        val sec = SecurePrefs(this)
+        val etOld = findViewById<EditText>(R.id.etOldPassword)
+        val etNew = findViewById<EditText>(R.id.etNewPassword)
+        val etConfirm = findViewById<EditText>(R.id.etConfirmPassword)
+        val btnChange = findViewById<Button>(R.id.btnChange)
+
+        btnChange.setOnClickListener {
+            val old = etOld.text.toString()
+            val new = etNew.text.toString()
+            val confirm = etConfirm.text.toString()
+
+            if (!sec.checkPwd(old)) {
+                Toast.makeText(this, "Mật khẩu cũ sai", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (new.length < 6) {
+                Toast.makeText(this, "MK mới >= 6 ký tự", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            if (new != confirm) {
+                Toast.makeText(this, "Xác nhận không khớp", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            sec.savePwd(new)
+            Toast.makeText(this, "Đổi mật khẩu thành công", Toast.LENGTH_SHORT).show()
+            finish()
         }
     }
 }
