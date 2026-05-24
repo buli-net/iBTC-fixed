@@ -3,6 +3,8 @@ package net.buli.ibtc
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -11,13 +13,9 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import org.bitcoinj.core.Coin
-import org.bitcoinj.core.Transaction
-import java.text.SimpleDateFormat
-import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
-    // Views SafePal
     private lateinit var tvBalance: TextView
     private lateinit var tvBalanceUsd: TextView
     private lateinit var tvStatus: TextView
@@ -27,14 +25,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lvTokens: ListView
 
     private lateinit var walletManager: WalletManager
+    private lateinit var prefs: SharedPreferences
     private val tokenList = mutableListOf<TokenItem>()
     private lateinit var tokenAdapter: TokenAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // === BƯỚC 6: CHECK VÍ - NẾU CHƯA CÓ THÌ QUAY VỀ WELCOME ===
+        prefs = getSharedPreferences("ibtc_prefs", MODE_PRIVATE)
+        if (!prefs.getBoolean("has_wallet", false)) {
+            startActivity(Intent(this, WelcomeActivity::class.java))
+            finish()
+            return
+        }
+        // =========================================================
+
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Ánh xạ ID mới
         tvBalance = findViewById(R.id.tvBalance)
         tvBalanceUsd = findViewById(R.id.tvBalanceUsd)
         tvStatus = findViewById(R.id.tvStatus)
@@ -43,7 +50,6 @@ class MainActivity : AppCompatActivity() {
         btnSend = findViewById(R.id.btnSend)
         lvTokens = findViewById(R.id.lvTokens)
 
-        // Adapter cho list token
         tokenAdapter = TokenAdapter(this, tokenList)
         lvTokens.adapter = tokenAdapter
 
@@ -52,27 +58,23 @@ class MainActivity : AppCompatActivity() {
 
         walletManager = WalletManager(this)
 
-        // Cập nhật số dư - chuẩn Bitcoin 8 số
         walletManager.onBalanceChanged = { balance ->
             runOnUiThread {
                 tvBalance.text = formatBTC(balance)
-                tvBalanceUsd.text = "≈ $0.00" // sau này thêm giá live
+                tvBalanceUsd.text = "≈ $0.00"
                 tvStatus.text = "Sẵn sàng"
                 updateTokenList(balance)
             }
         }
 
-        walletManager.onTransaction = { tx ->
-            runOnUiThread {
-                // có thể refresh list ở đây
-            }
+        walletManager.onTransaction = { _ ->
+            runOnUiThread { /* refresh nếu cần */ }
         }
 
-        // Khởi động ví
         Thread {
             try {
                 walletManager.startWallet()
-                Thread.sleep(5000)
+                Thread.sleep(3000)
                 runOnUiThread {
                     val addr = walletManager.getReceiveAddress()
                     tvAddress.text = addr
@@ -94,21 +96,11 @@ class MainActivity : AppCompatActivity() {
         btnSend.setOnClickListener { showSendDialog() }
     }
 
-    // Format chuẩn Bitcoin: tối đa 8 số, bỏ 0 thừa
-    private fun formatBTC(coin: Coin): String {
-        return "${coin.toPlainString()} BTC"
-    }
+    private fun formatBTC(coin: Coin): String = "${coin.toPlainString()} BTC"
 
     private fun updateTokenList(balance: Coin) {
         tokenList.clear()
-        tokenList.add(
-            TokenItem(
-                name = "Bitcoin",
-                symbol = "BTC",
-                amount = formatBTC(balance),
-                usd = "$0.00"
-            )
-        )
+        tokenList.add(TokenItem("Bitcoin", "BTC", formatBTC(balance), "$0.00"))
         tokenAdapter.notifyDataSetChanged()
     }
 
@@ -175,15 +167,12 @@ class MainActivity : AppCompatActivity() {
         try { walletManager.stopWallet() } catch (_: Exception) {}
     }
 
-    // Data class cho token
     data class TokenItem(val name: String, val symbol: String, val amount: String, val usd: String)
 
-    // Adapter cho ListView SafePal
     inner class TokenAdapter(private val context: Context, private val items: List<TokenItem>) : BaseAdapter() {
-        override fun getCount(): Int = items.size
-        override fun getItem(position: Int): Any = items[position]
-        override fun getItemId(position: Int): Long = position.toLong()
-
+        override fun getCount() = items.size
+        override fun getItem(position: Int) = items[position]
+        override fun getItemId(position: Int) = position.toLong()
         override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
             val view = convertView?: LayoutInflater.from(context).inflate(R.layout.item_token, parent, false)
             val item = items[position]
