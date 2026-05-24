@@ -1,22 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:background="@color/safepal_bg">
-    <LinearLayout android:orientation="vertical" android:padding="24dp"
-        android:layout_width="match_parent" android:layout_height="wrap_content">
-        <TextView android:text="Sao lưu cụm từ khôi phục" android:textSize="22sp"
-            android:textStyle="bold" android:textColor="@color/safepal_text"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <TextView android:text="Viết ra giấy theo đúng thứ tự. Mất 12 từ = mất ví."
-            android:textColor="@color/safepal_gray" android:layout_marginTop="8dp"
-            android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-        <TextView android:id="@+id/tvSeed" android:layout_marginTop="24dp"
-            android:background="@color/safepal_card" android:padding="16dp"
-            android:textColor="@color/safepal_text" android:textSize="18sp"
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sao lưu cụm từ khôi phục"
+            android:textColor="@color/safepal_text"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Viết ra giấy theo đúng thứ tự. Mất 12 từ = mất ví."
+            android:textColor="@color/safepal_gray" />
+
+        <TextView
+            android:id="@+id/tvSeed"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:background="@color/safepal_card"
             android:lineSpacingExtra="8dp"
-            android:layout_width="match_parent" android:layout_height="wrap_content"/>
-        <Button android:id="@+id/btnNext" android:layout_marginTop="32dp"
-            android:text="TÔI ĐÃ GHI LẠI" android:backgroundTint="@color/safepal_purple"
-            android:layout_width="match_parent" android:layout_height="56dp"/>
+            android:padding="16dp"
+            android:textColor="@color/safepal_text"
+            android:textSize="18sp" />
+
+        <Button
+            android:id="@+id/btnNext"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="32dp"
+            android:backgroundTint="@color/safepal_purple"
+            android:text="TÔI ĐÃ GHI LẠI" />
     </LinearLayout>
 </ScrollView>
