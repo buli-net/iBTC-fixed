@@ -17,12 +17,15 @@ class VerifySeedActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnVerify).setOnClickListener {
             val input = findViewById<EditText>(R.id.etVerifySeed).text.toString()
-                .trim().replace("\n"," ").replace("\\s+".toRegex()," ")
+                .trim()
+                .replace("\n", " ")
+                .replace("\\s+".toRegex(), " ")
+            
             if (input == original) {
                 startActivity(Intent(this, SetPasswordActivity::class.java))
                 finish()
             } else {
-                Toast.makeText(this, "Sai thu tu, thu lai", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Sai thứ tự, thử lại", Toast.LENGTH_SHORT).show()
             }
         }
     }
