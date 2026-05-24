@@ -4,13 +4,12 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.TextView
 import android.widget.Toast
-import androidx.appcompat.app.AppCompatActivity
 import org.bitcoinj.params.MainNetParams
+import org.bitcoinj.script.Script.ScriptType
 import org.bitcoinj.wallet.DeterministicSeed
 import org.bitcoinj.wallet.Wallet
-import org.bitcoinj.script.Script.ScriptType
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : BaseNavActivity() {
     private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,10 +23,6 @@ class MainActivity : AppCompatActivity() {
         val address = wallet.currentReceiveAddress().toString()
 
         findViewById<TextView>(R.id.tvAddress).text = address
-        findViewById<TextView>(R.id.tvUsd).text = "$0.00"
-        findViewById<TextView>(R.id.tvBalance).text = "≈ 0 BTC"
-        findViewById<TextView>(R.id.tvBtcAmount).text = "0 BTC"
-
         findViewById<TextView>(R.id.tvAddress).setOnClickListener {
             getSystemService(android.content.ClipboardManager::class.java)
                 .setPrimaryClip(android.content.ClipData.newPlainText("addr", address))
@@ -35,11 +30,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<android.view.View>(R.id.btnSend).setOnClickListener {
-            startActivity(Intent(this, SendActivity::class.java)) }
+            startActivity(Intent(this, SendActivity::class.java))
+        }
         findViewById<android.view.View>(R.id.btnReceive).setOnClickListener {
-            startActivity(Intent(this, ReceiveActivity::class.java)) }
-        findViewById<android.view.View>(R.id.navSettings).setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java)) }
+            startActivity(Intent(this, ReceiveActivity::class.java))
+        }
+
+        setupNav(R.id.navWallet) // <-- bật nav
     }
 
     override fun onPause() {
