@@ -3,7 +3,6 @@ package net.buli.ibtc
 import android.os.Bundle
 import android.widget.EditText
 import android.widget.Button
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class SettingsActivity : AppCompatActivity() {
@@ -17,14 +16,7 @@ class SettingsActivity : AppCompatActivity() {
         val btnSave = findViewById<Button>(R.id.btnSave)
         
         btnSave?.setOnClickListener {
-            val old = etOldPwd.text.toString()
-            val newP = etNewPwd.text.toString()
-            val conf = etConfirmPwd.text.toString()
-            if (newP.isNotEmpty() && newP == conf) {
-                Toast.makeText(this, "Settings saved", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this, "Passwords do not match", Toast.LENGTH_SHORT).show()
-            }
+            finish()
         }
     }
 }

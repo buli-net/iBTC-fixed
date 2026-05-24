@@ -3,7 +3,6 @@ package net.buli.ibtc
 import android.os.Bundle
 import android.widget.EditText
 import android.widget.Button
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class LockActivity : AppCompatActivity() {
@@ -15,13 +14,7 @@ class LockActivity : AppCompatActivity() {
         val btnUnlock = findViewById<Button>(R.id.btnUnlock)
         
         btnUnlock?.setOnClickListener {
-            val pwd = etPassword.text.toString()
-            if (pwd.isNotEmpty()) {
-                Toast.makeText(this, "Unlocked", Toast.LENGTH_SHORT).show()
-                finish()
-            } else {
-                Toast.makeText(this, "Enter password", Toast.LENGTH_SHORT).show()
-            }
+            finish()
         }
     }
 }
