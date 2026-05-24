@@ -12,6 +12,7 @@ class SettingsActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
+        
         val etOldPwd = findViewById<EditText>(R.id.etOldPwd)
         val etNewPwd = findViewById<EditText>(R.id.etNewPwd)
         val btnChangePwd = findViewById<Button>(R.id.btnChangePwd)
@@ -22,8 +23,8 @@ class SettingsActivity : BaseActivity() {
         btnChangePwd.setOnClickListener {
             if (sec.checkPwd(etOldPwd.text.toString())) {
                 sec.savePwd(etNewPwd.text.toString())
-                Toast.makeText(this,"Đổi MK xong",Toast.LENGTH_SHORT).show()
-            } else Toast.makeText(this,"MK cũ sai",Toast.LENGTH_SHORT).show()
+                Toast.makeText(this,"Đổi xong",Toast.LENGTH_SHORT).show()
+            } else Toast.makeText(this,"Sai MK cũ",Toast.LENGTH_SHORT).show()
         }
         btnShowSeed.setOnClickListener {
             if (sec.checkPwd(etOldPwd.text.toString())) Toast.makeText(this, sec.getSeed(), Toast.LENGTH_LONG).show()
