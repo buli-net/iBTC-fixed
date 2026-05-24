@@ -23,7 +23,8 @@ class CreateWalletActivity : BaseActivity() {
             sec.saveSeed(m.joinToString(" ")); sec.savePwd(pwd)
             val w = org.bitcoinj.wallet.Wallet.fromSeed(MainNetParams.get(), seed)
             getSharedPreferences("ibtc_prefs",0).edit().putString("btc_address", w.currentReceiveAddress().toString()).putBoolean("has_wallet",true).apply()
-            Toast.makeText(this,"Tạo ví xong",Toast.LENGTH_SHORT).show(); finish()
+            Toast.makeText(this,"Tạo ví xong",Toast.LENGTH_SHORT).show()
+            finish()
         }
     }
 }
