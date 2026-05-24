@@ -1,31 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp"
-    android:gravity="center">
-
-    <Button android:id="@+id/btnChangePwd"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="ĐỔI MẬT KHẨU" />
-
-    <Button android:id="@+id/btnShowSeed"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="HIỂN THỊ SEED" />
-
-    <Button android:id="@+id/btnBackup"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="SAO LƯU VÍ" />
-
-    <Button android:id="@+id/btnAbout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="GIỚI THIỆU" />
-</LinearLayout>
+    android:background="#0B0E11">
+    <LinearLayout android:padding="16dp" android:orientation="vertical">
+        <TextView android:text="Cài đặt" android:textColor="#FFF" android:textSize="24sp" android:textStyle="bold" android:layout_marginBottom="24dp"/>
+        <TextView android:text="BẢO MẬT" android:textColor="#7A7F85" android:textSize="12sp" android:layout_marginBottom="8dp"/>
+        <com.google.android.material.card.MaterialCardView app:cardCornerRadius="12dp" app:cardBackgroundColor="#1A1F24">
+            <LinearLayout android:orientation="vertical">
+                <LinearLayout android:id="@+id/btnChangePwd" android:layout_height="56dp" android:gravity="center_vertical" android:paddingHorizontal="16dp">
+                    <ImageView android:src="@android:drawable/ic_lock_lock" android:tint="#3B82F6" android:layout_width="24dp" android:layout_height="24dp"/>
+                    <TextView android:text="Đổi mật khẩu" android:textColor="#FFF" android:layout_weight="1" android:layout_marginStart="16dp"/>
+                    <ImageView android:src="@android:drawable/ic_media_next" android:tint="#7A7F85" android:layout_width="20dp" android:layout_height="20dp"/>
+                </LinearLayout>
+                <View android:layout_height="1dp" android:background="#2A2F34" android:layout_marginStart="52dp"/>
+                <LinearLayout android:id="@+id/btnShowSeed"
