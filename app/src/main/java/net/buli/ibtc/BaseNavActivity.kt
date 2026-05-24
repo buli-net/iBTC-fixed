@@ -9,7 +9,6 @@ import androidx.core.content.ContextCompat
 abstract class BaseNavActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("ibtc_prefs", MODE_PRIVATE) }
 
-    // Luôn khóa khi rời màn hình
     override fun onPause() {
         super.onPause()
         if (prefs.getBoolean("has_wallet", false)) {
@@ -17,7 +16,6 @@ abstract class BaseNavActivity : AppCompatActivity() {
         }
     }
 
-    // Mở lại là bắt nhập pass
     override fun onResume() {
         super.onResume()
         if (prefs.getBoolean("locked", false) && prefs.getBoolean("has_wallet", false)) {
@@ -41,7 +39,6 @@ abstract class BaseNavActivity : AppCompatActivity() {
             val (icId, tvId) = ids
             findViewById<android.view.View>(navId)?.setOnClickListener {
                 if (navId != selectedId) {
-                    // ÉP KHÓA trước khi chuyển tab
                     prefs.edit().putBoolean("locked", true).apply()
                     startActivity(Intent(this, cls))
                     overridePendingTransition(0, 0)
@@ -54,7 +51,6 @@ abstract class BaseNavActivity : AppCompatActivity() {
         }
     }
 
-    // Back cũng ép pass
     override fun onBackPressed() {
         if (this !is MainActivity) {
             prefs.edit().putBoolean("locked", true).apply()
